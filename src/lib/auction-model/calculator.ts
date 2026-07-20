@@ -419,15 +419,21 @@ function assignRanksAndTiers(players: ScoredPlayer[]): PlayerWithValue[] {
 function assignTiers(players: ScoredPlayer[]): PlayerWithValue[] {
   if (players.length === 0) return [];
 
-  // Use equal-sized buckets sorted by auctionValue descending.
-  // This guarantees every tier has roughly the same number of players
-  // and avoids empty/gap tiers that happen with fixed percentage thresholds.
-  const numTiers = 12;
-  const bucketSize = Math.max(2, Math.floor(players.length / numTiers));
-  const totalBuckets = Math.min(numTiers, Math.ceil(players.length / bucketSize));
+  // Tier 1: Top 7 players by source value (the true elite tier)
+  // Tier 2+ : Everyone else split into 11 equal-sized buckets
+  const tier1Count = 7;
+  const restTiers = 11;
+  const restPlayers = players.slice(tier1Count);
+  const bucketSize = Math.max(1, Math.floor(restPlayers.length / restTiers));
+  const totalBuckets = Math.min(restTiers, Math.ceil(restPlayers.length / bucketSize));
 
   players.forEach((p, idx) => {
-    p.tier = Math.min(Math.floor(idx / bucketSize) + 1, totalBuckets);
+    if (idx < tier1Count) {
+      p.tier = 1;
+    } else {
+      const remIdx = idx - tier1Count;
+      p.tier = Math.min(Math.floor(remIdx / bucketSize) + 2, 12);
+    }
   });
 
   return players;
