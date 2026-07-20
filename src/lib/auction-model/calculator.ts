@@ -98,19 +98,24 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
   // ── Step 4: Replacement level (best undrafted player at each position) ──
   const replacementValues = getReplacementValues(drafted, poolResult.undraftedByPosition);
 
-  // ── Step 5: TE premium multiplier ──
-  let tePremiumMultiplier = 1;
-  if (settings.tePremium === "half") tePremiumMultiplier = 1.5;
-  else if (settings.tePremium === "full") tePremiumMultiplier = 2.0;
+  // ── Step 5: TE premium — scale source values, not post-hoc weight ──
+  // Maps TEP setting to a multiplier on source value:
+  //   0.0 TEP (none)  → 1.0×   (no change)
+  //   0.5 TEP (half)  → 1.15×
+  //   1.0 TEP (full)  → 1.30×
+  //   custom          → 1.0 + (value × 0.3)
+  let tepScalar = 1;
+  if (settings.tePremium === "half") tepScalar = 1.15;
+  else if (settings.tePremium === "full") tepScalar = 1.30;
   else if (settings.tePremium === "custom")
-    tePremiumMultiplier = 1 + settings.tePremiumCustom;
+    tepScalar = 1 + settings.tePremiumCustom * 0.3;
 
   // ── Step 6: Surplus and weights ──
   const scored: ScoredPlayer[] = drafted.map((p) => {
+    const scaledValue = p.position === "TE" ? p.sourceValue * tepScalar : p.sourceValue;
     const repl = replacementValues[p.position] ?? 0;
-    const surplus = Math.max(p.sourceValue - repl, 0);
-    const baseWeight = Math.pow(surplus, settings.exponent);
-    const weight = p.position === "TE" ? baseWeight * tePremiumMultiplier : baseWeight;
+    const surplus = Math.max(scaledValue - repl, 0);
+    const weight = Math.pow(surplus, settings.exponent);
     return {
       ...p,
       auctionValue: 0,
@@ -130,11 +135,17 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
 
   // ── Step 7: Fallback if all surpluses zero ──
   if (totalWeight === 0) {
-    const totalSource = sorted.reduce((s, p) => s + Math.max(p.sourceValue, 0.01), 0);
-    const distributed: ScoredPlayer[] = scored.map((p) => ({
-      ...p,
-      rawValue: minBid + discretionaryBudget * (Math.max(p.sourceValue, 0.01) / totalSource),
-    }));
+    const totalSource = sorted.reduce((s, p) => {
+      const sv = p.position === "TE" ? p.sourceValue * tepScalar : p.sourceValue;
+      return s + Math.max(sv, 0.01);
+    }, 0);
+    const distributed: ScoredPlayer[] = scored.map((p) => {
+      const sv = p.position === "TE" ? p.sourceValue * tepScalar : p.sourceValue;
+      return {
+        ...p,
+        rawValue: minBid + discretionaryBudget * (Math.max(sv, 0.01) / totalSource),
+      };
+    });
     return finalizeResults(distributed, {
       totalLeagueBudget, reservedMinimumBudget, discretionaryBudget,
       replacementValues, playerPoolSize: drafted.length,
