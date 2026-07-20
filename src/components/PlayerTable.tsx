@@ -442,7 +442,7 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
                 </td>
                 <td className="px-3 py-2.5 text-muted-foreground font-mono text-xs tabular-nums">
                   {p.scaledValue !== p.sourceValue
-                    ? <><span className="line-through opacity-50">{p.sourceValue}</span> <span className="text-blue-500">{p.scaledValue}</span></>
+                    ? <span className="text-blue-500">{p.scaledValue}</span>
                     : p.sourceValue}
                 </td>
                 <td className="px-3 py-2.5">
