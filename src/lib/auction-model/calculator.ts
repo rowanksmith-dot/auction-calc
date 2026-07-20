@@ -28,6 +28,7 @@ interface ScoredPlayer {
   position: "QB" | "RB" | "WR" | "TE";
   age: number;
   sourceValue: number;
+  scaledValue: number;
   trend30: number | null;
   auctionValue: number;
   positionRank: number;
@@ -118,6 +119,7 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
     const weight = Math.pow(surplus, settings.exponent);
     return {
       ...p,
+      scaledValue: Math.round(scaledValue * 100) / 100,
       auctionValue: 0,
       positionRank: 0,
       overallRank: 0,
@@ -186,6 +188,7 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
     .filter((p) => !result.players.find((rp) => rp.id === p.id))
     .map((p, i) => ({
       ...p,
+      scaledValue: p.sourceValue,
       auctionValue: 1,
       positionRank: undraftedPosRanks[p.id] ?? 0,
       overallRank: result.players.length + i + 1,
@@ -303,6 +306,7 @@ function constructPlayerPool(
   // Map to ScoredPlayer
   const scored: ScoredPlayer[] = drafted.map((p) => ({
     ...p,
+    scaledValue: p.sourceValue,
     auctionValue: 0,
     positionRank: 0,
     overallRank: 0,

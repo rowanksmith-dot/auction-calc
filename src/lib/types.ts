@@ -88,6 +88,7 @@ export interface PlayerWithValue {
   position: "QB" | "RB" | "WR" | "TE";
   age: number;
   sourceValue: number;
+  scaledValue: number;
   auctionValue: number;
   positionRank: number;
   overallRank: number;

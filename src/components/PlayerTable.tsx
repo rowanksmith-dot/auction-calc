@@ -199,6 +199,7 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
       "Pos Rank",
       "Auction Value",
       "Source Value",
+      "Scaled Value",
       "Tier",
       "Drafted",
     ];
@@ -211,6 +212,7 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
         p.positionRank,
         p.auctionValue,
         p.sourceValue,
+        p.scaledValue,
         p.tier,
         p.drafted ? "Yes" : "No",
       ].join(","),
@@ -439,7 +441,9 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
                   {formatCurrency(p.auctionValue)}
                 </td>
                 <td className="px-3 py-2.5 text-muted-foreground font-mono text-xs tabular-nums">
-                  {p.sourceValue}
+                  {p.scaledValue !== p.sourceValue
+                    ? <><span className="line-through opacity-50">{p.sourceValue}</span> <span className="text-blue-500">{p.scaledValue}</span></>
+                    : p.sourceValue}
                 </td>
                 <td className="px-3 py-2.5">
                   <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-secondary text-xs font-medium">
