@@ -117,7 +117,7 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
       positionRank: 0,
       overallRank: 0,
       tier: 0,
-      drafted: false,
+      drafted: true,
       winningBid: null,
       draftedBy: null,
       surplus,
@@ -152,15 +152,33 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
     replacementValues, playerPoolSize: drafted.length,
   }, totalLeagueBudget);
 
-  // Add undrafted players as $0 "Waiver"
+  // Compute position ranks for undrafted players (by source value)
+  const undraftedPosRanks: Record<number, number> = {};
+  const posGroups: Record<string, Array<{id: number; sourceValue: number}>> = {};
+  for (const p of undrafted) {
+    if (!posGroups[p.position]) posGroups[p.position] = [];
+    posGroups[p.position].push(p);
+  }
+  for (const [, group] of Object.entries(posGroups)) {
+    group.sort((a, b) => b.sourceValue - a.sourceValue);
+    group.forEach((p, i) => { undraftedPosRanks[p.id] = i + 1; });
+  }
+  // Adjust drafted position ranks to account for undrafted ahead of them
+  for (const dp of result.players) {
+    const undraftedAhead = (posGroups[dp.position] ?? [])
+      .filter(u => u.sourceValue > dp.sourceValue).length;
+    dp.positionRank = dp.positionRank + undraftedAhead;
+  }
+
+  // Add undrafted players — display $1 but $0 toward budget
   const undraftedAsValues: PlayerWithValue[] = undrafted
     .filter((p) => !result.players.find((rp) => rp.id === p.id))
     .map((p, i) => ({
       ...p,
-      auctionValue: 0,
-      positionRank: 0,
+      auctionValue: 1,
+      positionRank: undraftedPosRanks[p.id] ?? 0,
       overallRank: result.players.length + i + 1,
-      tier: 8,
+      tier: 12,
       drafted: false,
       winningBid: null,
       draftedBy: null,
@@ -169,6 +187,7 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
   return {
     ...result,
     players: [...result.players, ...undraftedAsValues],
+    // totalSpent only counts drafted players (auctionValue > 1), not the undrafted $1 display values
     totalSpent: result.players.reduce((s, p) => s + p.auctionValue, 0),
   };
 }
@@ -276,7 +295,7 @@ function constructPlayerPool(
     positionRank: 0,
     overallRank: 0,
     tier: 0,
-    drafted: false,
+    drafted: true,
     winningBid: null,
     draftedBy: null,
     surplus: 0,
@@ -403,16 +422,21 @@ function assignTiers(players: ScoredPlayer[]): PlayerWithValue[] {
   const minVal = players[players.length - 1].auctionValue;
   const range = maxVal - minVal || 1;
 
+  // 12 tighter tiers — roughly $5-8 increments for a $250 budget
   players.forEach((p) => {
     const pct = (maxVal - p.auctionValue) / range;
-    if (pct < 0.1) p.tier = 1;
-    else if (pct < 0.25) p.tier = 2;
-    else if (pct < 0.4) p.tier = 3;
-    else if (pct < 0.55) p.tier = 4;
-    else if (pct < 0.7) p.tier = 5;
-    else if (pct < 0.82) p.tier = 6;
-    else if (pct < 0.92) p.tier = 7;
-    else p.tier = 8;
+    if (pct < 0.04) p.tier = 1;
+    else if (pct < 0.08) p.tier = 2;
+    else if (pct < 0.14) p.tier = 3;
+    else if (pct < 0.21) p.tier = 4;
+    else if (pct < 0.29) p.tier = 5;
+    else if (pct < 0.38) p.tier = 6;
+    else if (pct < 0.47) p.tier = 7;
+    else if (pct < 0.57) p.tier = 8;
+    else if (pct < 0.67) p.tier = 9;
+    else if (pct < 0.78) p.tier = 10;
+    else if (pct < 0.89) p.tier = 11;
+    else p.tier = 12;
   });
 
   return players;

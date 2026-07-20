@@ -269,7 +269,8 @@ export default function Home() {
     return `${settings.numTeams} teams · ${scoringLabel} · ${qbLabel} · $${settings.budget} budget · ${rosterCount} roster spots`;
   }, [settings]);
 
-  const totalValue = allPlayers.reduce((sum, p) => sum + p.auctionValue, 0);
+  // totalValue (display) includes $1 undrafted; actualSpent only counts drafted players
+  const actualSpent = allPlayers.filter(p => p.drafted).reduce((sum, p) => sum + p.auctionValue, 0);
   const totalBudget = settings.numTeams * settings.budget;
 
   // ── Diagnostics data ──
@@ -279,7 +280,7 @@ export default function Home() {
     lastRefresh,
     rawDataCount: dataState?.raw.length ?? 0,
     playerCount: allPlayers.length,
-    totalValue,
+    totalValue: actualSpent,
     totalBudget,
     draftedCount: allPlayers.filter((p) => p.auctionValue > 0).length,
     loading,
@@ -287,7 +288,7 @@ export default function Home() {
     error,
     onClose: () => setShowDiagnostics(false),
     replacementValues: allPlayers.length > 0 ? undefined : undefined,
-  }), [settings, dataSource, lastRefresh, dataState, allPlayers, totalValue, totalBudget, loading, calculating, error]);
+  }), [settings, dataSource, lastRefresh, dataState, allPlayers, actualSpent, totalBudget, loading, calculating, error]);
 
   // ── Render ──
 
@@ -341,7 +342,7 @@ export default function Home() {
             lastRefresh={lastRefresh}
             rawDataCount={dataState?.raw.length ?? 0}
             playerCount={allPlayers.length}
-            totalValue={totalValue}
+            totalValue={actualSpent}
             totalBudget={totalBudget}
             draftedCount={allPlayers.filter((p) => p.auctionValue > 0).length}
             loading={loading}
@@ -487,9 +488,9 @@ export default function Home() {
 
           {!loading && allPlayers.length > 0 && (
             <div className="text-xs text-muted-foreground tabular-nums">
-              {allPlayers.length} players · Total:{" "}
-              {formatCurrency(totalValue)}·
-              {allPlayers.filter((p) => p.auctionValue > 0).length} drafted
+              {allPlayers.length} players · Budget spent:{" "}
+              {formatCurrency(actualSpent)} of {formatCurrency(totalBudget)}·
+              {allPlayers.filter((p) => p.drafted).length} drafted
             </div>
           )}
         </div>
