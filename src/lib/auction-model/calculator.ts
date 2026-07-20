@@ -184,10 +184,11 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
       draftedBy: null,
     }));
 
+  const allPlayers = [...result.players, ...undraftedAsValues];
   return {
     ...result,
-    players: [...result.players, ...undraftedAsValues],
-    // totalSpent only counts drafted players (auctionValue > 1), not the undrafted $1 display values
+    // All players start as undrafted — users mark them drafted in the Draft Room
+    players: allPlayers.map(p => ({ ...p, drafted: false })),
     totalSpent: result.players.reduce((s, p) => s + p.auctionValue, 0),
   };
 }
