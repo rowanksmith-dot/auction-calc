@@ -1,27 +1,35 @@
 /**
  * FantasyCalc Data Adapter
  *
- * This module isolates all FantasyCalc-specific data fetching logic.
- * Swap this adapter to change data sources without rewriting the application.
- *
- * Current: Uses a local fallback dataset derived from FantasyCalc's public data.
- * Target: Connect to FantasyCalc's API if/when a public JSON endpoint is available.
+ * Isolates all FantasyCalc-specific data fetching. Calls the Next.js API
+ * proxy route so the server handles caching, retries, timeouts, and Zod
+ * validation.
  *
  * Data sourced from FantasyCalc (https://fantasycalc.com) — computer-generated
  * fantasy football trade values.
+ *
+ * To change the data source, swap the implementation of getFantasyCalcData
+ * while keeping the same return type.
  */
 
-import type { PlayerWithValue } from "../types";
+import type { LeagueSettings, PlayerWithValue } from "../types";
+import fallbackValues from "@/data/fallback-values.json";
 
-const FANTASYCALC_BASE_URL = "https://api.fantasycalc.com";
-const PLAYERS_ENDPOINT = `${FANTASYCALC_BASE_URL}/players`;
+/** Raw FantasyCalc value record from the API response. */
+export interface FantasyCalcValueRecord {
+  playerId: number;
+  name?: string;
+  position?: string;
+  team?: string;
+  /** The correct source value — this is item.value, NOT overallRank or combinedValue. */
+  value: number;
+  overallRank?: number;
+  positionRank?: number;
+  trend30Day?: number | null;
+  maybeTier?: number | null;
+}
 
-// Cache
-let playersCache: FantasyCalcApiPlayer[] | null = null;
-let valuesCache: FantasyCalcValueRecord[] | null = null;
-let lastFetchTime = 0;
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
+/** Raw player metadata from the FantasyCalc /players endpoint. */
 export interface FantasyCalcApiPlayer {
   id: number;
   name: string;
@@ -30,118 +38,159 @@ export interface FantasyCalcApiPlayer {
   maybeAge: number;
 }
 
-export interface FantasyCalcValueRecord {
-  playerId: number;
-  name: string;
-  position: "QB" | "RB" | "WR" | "TE";
-  team: string;
-  value: number;      // 1QB redraft value
-  sfValue: number;    // superflex redraft value
-  dynastyValue: number;
-  dynastySfValue: number;
-  ppr: number;        // PPR adjustment factor
-  trend30: number | null;
-}
-
 interface FetchResult {
   players: FantasyCalcApiPlayer[];
   values: FantasyCalcValueRecord[];
   timestamp: string;
   fromCache: boolean;
+  source: "api" | "fallback";
+}
+
+// ---- Cache ----
+let fetchCache: {
+  result: FetchResult;
+  ts: number;
+  key: string;
+} | null = null;
+const CACHE_TTL = 60_000; // 1 minute client-side cache
+
+/**
+ * Build the FantasyCalc query params from league settings.
+ */
+function buildFantasyCalcParams(settings: LeagueSettings): URLSearchParams {
+  const params = new URLSearchParams();
+
+  // Redraft vs Dynasty
+  params.set("isDynasty", settings.format === "dynasty" ? "true" : "false");
+
+  // QB format: 1QB → numQbs=1, Superflex → numQbs=2
+  params.set("numQbs", settings.qbFormat === "superflex" ? "2" : "1");
+
+  // Team count
+  params.set("numTeams", String(settings.numTeams));
+
+  // PPR
+  if (settings.scoring === "standard") params.set("ppr", "0");
+  else if (settings.scoring === "halfPpr") params.set("ppr", "0.5");
+  else params.set("ppr", "1");
+
+  return params;
 }
 
 /**
- * Fetches player metadata from FantasyCalc API.
- * Falls back to local dataset on failure.
+ * Fetch data from the Vercel API proxy route.
+ * Falls back to the local dataset if the proxy fails.
  */
-async function fetchPlayers(): Promise<FantasyCalcApiPlayer[]> {
-  const response = await fetch(PLAYERS_ENDPOINT, {
-    headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(5000),
-  });
+export async function getFantasyCalcData(
+  settings: LeagueSettings,
+): Promise<FetchResult> {
+  const cacheKey = JSON.stringify(buildFantasyCalcParams(settings));
 
-  if (!response.ok) {
-    throw new Error(`FantasyCalc players endpoint returned ${response.status}`);
-  }
-
-  const data: any[] = await response.json();
-  return data
-    .filter((p) => ["QB", "RB", "WR", "TE"].includes(p.position))
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      position: p.position as "QB" | "RB" | "WR" | "TE",
-      maybeTeam: p.maybeTeam || null,
-      maybeAge: p.maybeAge,
-    }));
-}
-
-/**
- * Loads the local fallback values dataset.
- * In production, this would call FantasyCalc's values API.
- */
-async function fetchValues(): Promise<FantasyCalcValueRecord[]> {
-  // Try to fetch from API first (endpoint TBD)
-  // const response = await fetch(`${FANTASYCALC_BASE_URL}/values`, { ... });
-  // For now, use local fallback dataset
-
-  const { default: fallbackValues } = await import(
-    "@/data/fallback-values.json"
-  );
-  return fallbackValues as FantasyCalcValueRecord[];
-}
-
-/**
- * Main fetch function — gets both players and values with caching.
- */
-export async function getFantasyCalcData(): Promise<FetchResult> {
+  // Check client-side cache
   const now = Date.now();
-  const cacheValid = now - lastFetchTime < CACHE_TTL_MS;
-
-  if (cacheValid && playersCache && valuesCache) {
-    return {
-      players: playersCache,
-      values: valuesCache,
-      timestamp: new Date(lastFetchTime).toISOString(),
-      fromCache: true,
-    };
+  if (fetchCache && fetchCache.key === cacheKey && now - fetchCache.ts < CACHE_TTL) {
+    return fetchCache.result;
   }
 
-  // Fetch in parallel
-  const [players, values] = await Promise.all([
-    fetchPlayers().catch(() => {
-      // Fallback: try local players
-      console.warn("Failed to fetch players from FantasyCalc API");
-      return playersCache ?? [];
-    }),
-    fetchValues().catch(() => {
-      console.warn("Failed to load values dataset");
-      return valuesCache ?? [];
-    }),
-  ]);
+  // Try via the server-side API proxy
+  try {
+    const params = buildFantasyCalcParams(settings);
+    const url = `/api/values?${params.toString()}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
 
-  playersCache = players;
-  valuesCache = values;
-  lastFetchTime = now;
+    if (res.ok) {
+      const data = await res.json();
+      const { players, values } = normalizeApiResponse(data);
 
-  return {
-    players,
-    values,
+      if (players.length > 0 && values.length > 0) {
+        const result: FetchResult = {
+          players,
+          values,
+          timestamp: data._refreshedAt ?? data.metadata?.timestamp ?? new Date().toISOString(),
+          fromCache: !!data._cached,
+          source: "api",
+        };
+        fetchCache = { result, ts: now, key: cacheKey };
+        return result;
+      }
+    }
+    // API returned 503 with fallback data, or empty response — fall through to local
+  } catch (err) {
+    console.warn("Failed to fetch from API proxy, using fallback:", err);
+  }
+
+  // Fallback: use local dataset
+  const local = loadLocalFallback();
+  const result: FetchResult = {
+    ...local,
     timestamp: new Date().toISOString(),
     fromCache: false,
+    source: "fallback",
   };
+  fetchCache = { result, ts: now, key: cacheKey };
+  return result;
 }
 
 /**
- * Merges player data with values and returns typed PlayerWithValue array.
+ * Normalize the API proxy response into typed arrays.
+ * Supports both the proxy's wrapped format and direct value arrays.
+ */
+function normalizeApiResponse(data: any): {
+  players: FantasyCalcApiPlayer[];
+  values: FantasyCalcValueRecord[];
+} {
+  let players: FantasyCalcApiPlayer[] = [];
+  let values: FantasyCalcValueRecord[] = [];
+
+  if (data.players && Array.isArray(data.players)) {
+    players = data.players
+      .filter((p: any) => p && ["QB", "RB", "WR", "TE"].includes(p.position))
+      .map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        position: p.position as "QB" | "RB" | "WR" | "TE",
+        maybeTeam: p.maybeTeam ?? null,
+        maybeAge: p.maybeAge ?? 25,
+      }));
+  }
+
+  // The values array from the proxy wraps per-item in a flat array
+  // Each item has: playerId, value (the source value), trend30Day, overallRank, positionRank
+  if (data.values && Array.isArray(data.values)) {
+    values = data.values.map((v: any) => ({
+      playerId: v.playerId ?? v.player?.id ?? 0,
+      name: v.name ?? v.player?.name ?? "",
+      position: v.position ?? v.player?.position ?? "",
+      team: v.team ?? v.player?.maybeTeam ?? "",
+      value: v.value ?? 0,
+      overallRank: v.overallRank ?? 0,
+      positionRank: v.positionRank ?? 0,
+      trend30Day: v.trend30Day ?? null,
+      maybeTier: v.maybeTier ?? null,
+    }));
+  }
+
+  return { players, values };
+}
+
+/**
+ * Merge FantasyCalc players + values into a unified list sorted by sourceValue descending.
  */
 export function mergePlayersWithValues(
   players: FantasyCalcApiPlayer[],
   values: FantasyCalcValueRecord[],
-): Omit<PlayerWithValue, "auctionValue" | "positionRank" | "overallRank" | "tier" | "drafted" | "winningBid" | "draftedBy">[] {
+): Array<{
+  id: number;
+  name: string;
+  team: string;
+  position: "QB" | "RB" | "WR" | "TE";
+  age: number;
+  sourceValue: number;
+  trend30: number | null;
+}> {
   const valueMap = new Map(values.map((v) => [v.playerId, v]));
 
-  return players
+  const merged = players
     .map((p) => {
       const v = valueMap.get(p.id);
       return {
@@ -149,17 +198,43 @@ export function mergePlayersWithValues(
         name: p.name,
         team: p.maybeTeam ?? "FA",
         position: p.position,
-        age: p.maybeAge,
+        age: p.maybeAge ?? 25,
         sourceValue: v?.value ?? 0,
-        trend30: v?.trend30 ?? null,
+        trend30: v?.trend30Day ?? null,
       };
     })
-    .filter((p) => p.sourceValue > 0); // only players with values
+    .filter((p) => p.sourceValue > 0);
+
+  // Sort descending by sourceValue (highest value first)
+  merged.sort((a, b) => b.sourceValue - a.sourceValue);
+
+  return merged;
 }
 
-// Re-export for external use
+/**
+ * Load the local fallback dataset.
+ */
+function loadLocalFallback(): {
+  players: FantasyCalcApiPlayer[];
+  values: FantasyCalcValueRecord[];
+} {
+  const fallback = fallbackValues as FantasyCalcValueRecord[];
+
+  // Build synthetic player records from the fallback values
+  const players: FantasyCalcApiPlayer[] = fallback.map((v) => ({
+    id: v.playerId,
+    name: v.name ?? `Player ${v.playerId}`,
+    position: (v.position ?? "WR") as "QB" | "RB" | "WR" | "TE",
+    maybeTeam: v.team ?? "FA",
+    maybeAge: 25,
+  }));
+
+  const values = fallback;
+
+  return { players, values };
+}
+
+/** Clear the local cache (used on retry). */
 export function clearDataCache(): void {
-  playersCache = null;
-  valuesCache = null;
-  lastFetchTime = 0;
+  fetchCache = null;
 }

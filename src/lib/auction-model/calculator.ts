@@ -4,13 +4,19 @@
  * Converts FantasyCalc market values into auction-dollar values using
  * a replacement-based model with proportional allocation.
  *
- * Methodology:
- * 1. Calculate total league budget
- * 2. Reserve minimum bids for all drafted players
- * 3. Assign players to roster slots using maximum-value allocation
- * 4. Calculate replacement value per position
- * 5. Distribute discretionary budget proportional to surplus^exponent
- * 6. Round using largest-remainder method for exact budget match
+ * Methodology (8-step):
+ * 1. Total league budget = teams × budgetPerTeam
+ * 2. Drafted player count = teams × rosterSize
+ * 3. Reserved minimum budget = draftedCount × minBid
+ * 4. Discretionary budget = totalBudget - reservedMinimum
+ * 5. Construct legal league-wide player pool (max-value slot assignment)
+ * 6. Replacement level = value of the best UNDRAFTED player at each position
+ * 7. Surplus = max(playerValue - replacement[pos], 0), weight = surplus^exponent
+ * 8. Round using largest-remainder method
+ *
+ * IMPORTANT: Replacement level uses the best undrafted player (marginal roster
+ * boundary), NOT the worst starter. This gives a market-correct replacement
+ * baseline and avoids concentrating all money on a handful of elite players.
  */
 
 import type { LeagueSettings, PlayerWithValue, RosterSlotType } from "../types";
@@ -35,13 +41,8 @@ interface ScoredPlayer {
   rawValue: number;
 }
 
-const FLEX_POSITIONS_LIST = ["RB", "WR", "TE"] as const;
-const VALID_SUPERFLEX_POSITIONS: Array<"QB" | "RB" | "WR" | "TE"> = [
-  "QB",
-  "RB",
-  "WR",
-  "TE",
-];
+const FLEX_ELIGIBLE: ReadonlyArray<"RB"|"WR"|"TE"> = ["RB", "WR", "TE"];
+const SUPERFLEX_ELIGIBLE: ReadonlyArray<"QB"|"RB"|"WR"|"TE"> = ["QB", "RB", "WR", "TE"];
 
 export interface CalculatorInput {
   players: Array<{
@@ -72,55 +73,44 @@ export interface CalculatorResult {
   };
 }
 
-/**
- * Main calculation function.
- */
 export function calculateAuctionValues(input: CalculatorInput): CalculatorResult {
   const { players, settings } = input;
   const { numTeams, budget, minBid } = settings;
 
-  // 1. Total league budget
+  // ── Step 1: League totals ──
   const totalLeagueBudget = numTeams * budget;
 
-  // 2. Total roster slots
   const rosterSize = settings.rosterSlots.reduce(
     (sum, slot) => sum + slot.count,
     0,
   );
   const draftedPlayerCount = numTeams * rosterSize;
-
-  // 3. Reserved minimum budget
   const reservedMinimumBudget = draftedPlayerCount * minBid;
-
-  // 4. Discretionary budget
   const discretionaryBudget = totalLeagueBudget - reservedMinimumBudget;
 
-  // 5. Determine TE premium bonus factor (applied to surplus weight)
-  // This is a transparent local adjustment, not a FantasyCalc value
+  // ── Step 2: Sort players by source value ──
+  const sorted = [...players].sort((a, b) => b.sourceValue - a.sourceValue);
+
+  // ── Step 3: Build the drafted player pool ──
+  const poolResult = constructPlayerPool(sorted, settings);
+  const { drafted, undrafted } = poolResult;
+
+  // ── Step 4: Replacement level (best undrafted player at each position) ──
+  const replacementValues = getReplacementValues(drafted, poolResult.undraftedByPosition);
+
+  // ── Step 5: TE premium multiplier ──
   let tePremiumMultiplier = 1;
   if (settings.tePremium === "half") tePremiumMultiplier = 1.5;
   else if (settings.tePremium === "full") tePremiumMultiplier = 2.0;
   else if (settings.tePremium === "custom")
     tePremiumMultiplier = 1 + settings.tePremiumCustom;
 
-  // 6. Sort players by source value (descending)
-  const sorted = [...players].sort((a, b) => b.sourceValue - a.sourceValue);
-
-  // 7. Assign players to roster slots (max-value method)
-  const drafted = assignPlayersToRosterSlots(sorted, settings);
-
-  // 8. Calculate replacement value per position
-  const replacementValues = calculateReplacementValues(drafted, settings);
-
-  // 9. Calculate surplus and weights (with TE premium multiplier on weight)
+  // ── Step 6: Surplus and weights ──
   const scored: ScoredPlayer[] = drafted.map((p) => {
     const repl = replacementValues[p.position] ?? 0;
     const surplus = Math.max(p.sourceValue - repl, 0);
     const baseWeight = Math.pow(surplus, settings.exponent);
-    const weight =
-      p.position === "TE"
-        ? baseWeight * tePremiumMultiplier
-        : baseWeight;
+    const weight = p.position === "TE" ? baseWeight * tePremiumMultiplier : baseWeight;
     return {
       ...p,
       auctionValue: 0,
@@ -138,81 +128,218 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
 
   const totalWeight = scored.reduce((sum, p) => sum + p.weight, 0);
 
-  // 10. Handle edge case: all surpluses zero
+  // ── Step 7: Fallback if all surpluses zero ──
   if (totalWeight === 0) {
-    // Fallback: distribute equally (proportional to source value)
-    const totalSourceValue = sorted.reduce(
-      (sum, p) => sum + Math.max(p.sourceValue, 0.01),
-      0,
-    );
-    const distributed: ScoredPlayer[] = sorted.map((p) => {
-      const base = Math.max(p.sourceValue, 0.01);
-      const rawValue =
-        minBid +
-        discretionaryBudget * (base / totalSourceValue);
-      return {
-        ...p,
-        auctionValue: 0,
-        positionRank: 0,
-        overallRank: 0,
-        tier: 0,
-        drafted: false,
-        winningBid: null,
-        draftedBy: null,
-        surplus: 0,
-        weight: base,
-        rawValue,
-      };
-    });
+    const totalSource = sorted.reduce((s, p) => s + Math.max(p.sourceValue, 0.01), 0);
+    const distributed: ScoredPlayer[] = scored.map((p) => ({
+      ...p,
+      rawValue: minBid + discretionaryBudget * (Math.max(p.sourceValue, 0.01) / totalSource),
+    }));
     return finalizeResults(distributed, {
-      totalLeagueBudget,
-      reservedMinimumBudget,
-      discretionaryBudget,
-      replacementValues,
-      playerPoolSize: drafted.length,
-    });
+      totalLeagueBudget, reservedMinimumBudget, discretionaryBudget,
+      replacementValues, playerPoolSize: drafted.length,
+    }, totalLeagueBudget);
   }
 
-  // 11. Distribute budget
+  // ── Step 8: Distribute discretionary budget ──
   const distributed: ScoredPlayer[] = scored.map((p) => ({
     ...p,
     rawValue: minBid + discretionaryBudget * (p.weight / totalWeight),
   }));
 
-  return finalizeResults(distributed, {
-    totalLeagueBudget,
-    reservedMinimumBudget,
-    discretionaryBudget,
-    replacementValues,
-    playerPoolSize: drafted.length,
-  });
+  const result = finalizeResults(distributed, {
+    totalLeagueBudget, reservedMinimumBudget, discretionaryBudget,
+    replacementValues, playerPoolSize: drafted.length,
+  }, totalLeagueBudget);
+
+  // Add undrafted players as $0 "Waiver"
+  const undraftedAsValues: PlayerWithValue[] = undrafted
+    .filter((p) => !result.players.find((rp) => rp.id === p.id))
+    .map((p, i) => ({
+      ...p,
+      auctionValue: 0,
+      positionRank: 0,
+      overallRank: result.players.length + i + 1,
+      tier: 8,
+      drafted: false,
+      winningBid: null,
+      draftedBy: null,
+    }));
+
+  return {
+    ...result,
+    players: [...result.players, ...undraftedAsValues],
+    totalSpent: result.players.reduce((s, p) => s + p.auctionValue, 0),
+  };
 }
 
-// ---- Internal helpers ----
+// ── Pool Construction ──
+
+interface PoolResult {
+  drafted: ScoredPlayer[];
+  undrafted: Array<{ id: number; name: string; team: string; position: "QB"|"RB"|"WR"|"TE"; age: number; sourceValue: number; trend30: number | null }>;
+  undraftedByPosition: Record<string, number>;
+}
+
+/**
+ * Builds the highest-value legal league-wide drafted player pool.
+ *
+ * Uses a two-pass approach:
+ * 1. Fill mandatory starter slots position-by-position
+ * 2. Fill FLEX, Superflex, and bench with highest-value eligible remaining
+ *
+ * This is a greedy maximum-value assignment that avoids ordering artifacts.
+ */
+function constructPlayerPool(
+  sorted: Array<{ id: number; name: string; team: string; position: "QB"|"RB"|"WR"|"TE"; age: number; sourceValue: number; trend30: number | null }>,
+  settings: LeagueSettings,
+): PoolResult {
+  const { numTeams } = settings;
+  const totalSlots = settings.rosterSlots.reduce((s, r) => s + r.count, 0) * numTeams;
+
+  // Count position-specific slot needs
+  let qbSlots = 0, rbSlots = 0, wrSlots = 0, teSlots = 0;
+  let flexSlots = 0, superflexSlots = 0;
+  for (const slot of settings.rosterSlots) {
+    const c = slot.count * numTeams;
+    switch (slot.type) {
+      case "QB": qbSlots += c; break;
+      case "RB": rbSlots += c; break;
+      case "WR": wrSlots += c; break;
+      case "TE": teSlots += c; break;
+      case "FLEX": flexSlots += c; break;
+      case "SUPERFLEX": superflexSlots += c; break;
+      case "BENCH": /* handled by totalSlots */ break;
+    }
+  }
+
+  const used = new Set<number>();
+  const drafted: typeof sorted = [];
+
+  // Helper: pick top N unassigned players matching a filter, add to drafted
+  function pick(n: number, filter: (p: typeof sorted[0]) => boolean): void {
+    let count = 0;
+    for (const p of sorted) {
+      if (count >= n) break;
+      if (!used.has(p.id) && filter(p)) {
+        used.add(p.id);
+        drafted.push(p);
+        count++;
+      }
+    }
+  }
+
+  // Pass 1: Mandatory position slots
+  pick(qbSlots, (p) => p.position === "QB");
+  pick(rbSlots, (p) => p.position === "RB");
+  pick(wrSlots, (p) => p.position === "WR");
+  pick(teSlots, (p) => p.position === "TE");
+
+  // Pass 2: Superflex slots (QB/RB/WR/TE by highest value)
+  pick(superflexSlots, (p) =>
+    (SUPERFLEX_ELIGIBLE as readonly string[]).includes(p.position)
+  );
+
+  // Pass 3: FLEX slots (RB/WR/TE by highest value)
+  pick(flexSlots, (p) =>
+    (FLEX_ELIGIBLE as readonly string[]).includes(p.position)
+  );
+
+  // Pass 4: Bench (highest remaining value)
+  const benchNeeded = totalSlots - drafted.length;
+  if (benchNeeded > 0) {
+    pick(benchNeeded, () => true);
+  }
+
+  // Undrafted players
+  const undrafted = sorted.filter((p) => !used.has(p.id));
+
+  // Undrafted by position (for replacement level)
+  const undraftedByPosition: Record<string, number> = {};
+  const bestUndrafted: Record<string, typeof sorted[0] | null> = { QB: null, RB: null, WR: null, TE: null };
+  for (const p of undrafted) {
+    if (!bestUndrafted[p.position] || p.sourceValue > bestUndrafted[p.position]!.sourceValue) {
+      bestUndrafted[p.position] = p;
+    }
+  }
+  for (const pos of ["QB", "RB", "WR", "TE"]) {
+    undraftedByPosition[pos] = bestUndrafted[pos]?.sourceValue ?? 0;
+  }
+
+  // Sort drafted by sourceValue descending
+  drafted.sort((a, b) => b.sourceValue - a.sourceValue);
+
+  // Map to ScoredPlayer
+  const scored: ScoredPlayer[] = drafted.map((p) => ({
+    ...p,
+    auctionValue: 0,
+    positionRank: 0,
+    overallRank: 0,
+    tier: 0,
+    drafted: false,
+    winningBid: null,
+    draftedBy: null,
+    surplus: 0,
+    weight: 0,
+    rawValue: 0,
+  }));
+
+  return { drafted: scored, undrafted, undraftedByPosition };
+}
+
+/**
+ * Replacement level: the best undrafted player at each position.
+ * This is the marginal roster boundary — the value that a team could get
+ * for free (or minimum bid) on the waiver wire.
+ */
+function getReplacementValues(
+  drafted: ScoredPlayer[],
+  undraftedByPosition: Record<string, number>,
+): Record<string, number> {
+  const repl: Record<string, number> = {};
+
+  for (const pos of ["QB", "RB", "WR", "TE"] as const) {
+    // Use the best undrafted player's value as replacement
+    const bestUndrafted = undraftedByPosition[pos] ?? 0;
+
+    // Fallback: if no undrafted exist for a position, use the worst drafted
+    if (bestUndrafted === 0) {
+      const posDrafted = drafted
+        .filter((p) => p.position === pos)
+        .sort((a, b) => b.sourceValue - a.sourceValue);
+      repl[pos] = posDrafted.length > 0
+        ? posDrafted[posDrafted.length - 1].sourceValue
+        : 0;
+    } else {
+      repl[pos] = bestUndrafted;
+    }
+  }
+
+  return repl;
+}
+
+// ── Finalization ──
 
 function finalizeResults(
   scored: ScoredPlayer[],
-  metadata: CalculatorResult["metadata"],
-): CalculatorResult {
-  // Round using largest-remainder method
-  // Compute actual raw total (may differ from budget due to incomplete pool)
-  const rawTotal = scored.reduce((sum, p) => sum + p.rawValue, 0);
-  const rounded = roundWithLargestRemainder(scored, Math.round(rawTotal));
-
-  // Sort by auction value descending
-  const sorted = rounded.sort((a, b) => b.auctionValue - a.auctionValue);
-
-  // Assign ranks and tiers
-  const ranked = assignRanksAndTiers(sorted);
-
+  metadata: {
+    totalLeagueBudget: number;
+    reservedMinimumBudget: number;
+    discretionaryBudget: number;
+    replacementValues: Record<string, number>;
+    playerPoolSize: number;
+  },
+  budgetTarget: number,
+): { players: PlayerWithValue[]; totalBudget: number; totalSpent: number; draftedCount: number; rosterCount: number; timestamp: string; metadata: typeof metadata } {
+  const rounded = roundWithLargestRemainder(scored, budgetTarget);
+  const ranked = assignRanksAndTiers(rounded);
   const totalSpent = ranked.reduce((sum, p) => sum + p.auctionValue, 0);
-  const totalDrafted = ranked.length;
 
   return {
     players: ranked,
     totalBudget: metadata.totalLeagueBudget,
     totalSpent,
-    draftedCount: totalDrafted,
+    draftedCount: ranked.length,
     rosterCount: metadata.playerPoolSize,
     timestamp: new Date().toISOString(),
     metadata,
@@ -221,9 +348,8 @@ function finalizeResults(
 
 function roundWithLargestRemainder(
   players: ScoredPlayer[],
-  budgetTarget?: number,
+  budgetTarget: number,
 ): ScoredPlayer[] {
-  // First pass: floor everyone
   let floorSum = 0;
   const floored = players.map((p) => {
     const floor = Math.floor(p.rawValue);
@@ -231,56 +357,43 @@ function roundWithLargestRemainder(
     return { ...p, auctionValue: floor, remainder: p.rawValue - floor };
   });
 
-  // Use the exact budget target (totalLeagueBudget) to avoid float rounding errors
-  const targetTotal = budgetTarget ?? players.reduce(
-    (sum, p) => sum + Math.round(p.rawValue),
-    0,
-  );
-  // Cap target at sum of floors + count (can't distribute more than 1 per player)
-  const adjustedTarget = Math.min(targetTotal, floorSum + players.length);
-  let remaining = adjustedTarget - floorSum;
+  // Take the budget target (total league budget), not sum of rounded
+  const maxDistributable = floorSum + players.length;
+  const targetBudget = Math.min(budgetTarget, maxDistributable);
+  let remaining = targetBudget - floorSum;
 
-  // Sort by remainder descending
-  const sortedByRemainder = [...floored].sort(
-    (a, b) => b.remainder - a.remainder,
-  );
-
-  // Distribute remaining dollars
-  for (let i = 0; i < remaining && i < sortedByRemainder.length; i++) {
-    sortedByRemainder[i].auctionValue += 1;
+  if (remaining > 0) {
+    const sortedByRem = [...floored].sort((a, b) => b.remainder - a.remainder);
+    for (let i = 0; i < remaining && i < sortedByRem.length; i++) {
+      sortedByRem[i].auctionValue += 1;
+    }
   }
 
-  // Rebuild by original order
-  const resultMap = new Map(sortedByRemainder.map((p) => [p.id, p]));
-  return players.map((p) => resultMap.get(p.id)!).map(({ remainder: _, ...rest }) => rest);
+  const resultMap = new Map(floored.map((p) => [p.id, p]));
+  return players.map((p) => {
+    const r = resultMap.get(p.id)!;
+    const { remainder: _, ...rest } = r;
+    return rest;
+  });
 }
 
-function assignRanksAndTiers(
-  players: ScoredPlayer[],
-): PlayerWithValue[] {
+function assignRanksAndTiers(players: ScoredPlayer[]): PlayerWithValue[] {
   // Position ranks
   const posGroups: Record<string, ScoredPlayer[]> = {};
   for (const p of players) {
     if (!posGroups[p.position]) posGroups[p.position] = [];
     posGroups[p.position].push(p);
   }
-
   for (const [, group] of Object.entries(posGroups)) {
     group.sort((a, b) => b.auctionValue - a.auctionValue);
-    group.forEach((p, i) => {
-      p.positionRank = i + 1;
-    });
+    group.forEach((p, i) => { p.positionRank = i + 1; });
   }
 
   // Overall ranks
-  players.forEach((p, i) => {
-    p.overallRank = i + 1;
-  });
+  players.forEach((p, i) => { p.overallRank = i + 1; });
 
-  // Tiers: group by natural breaks in auction value
-  const tiered = assignTiers(players);
-
-  return tiered;
+  // Tiers based on value
+  return assignTiers(players);
 }
 
 function assignTiers(players: ScoredPlayer[]): PlayerWithValue[] {
@@ -290,8 +403,7 @@ function assignTiers(players: ScoredPlayer[]): PlayerWithValue[] {
   const minVal = players[players.length - 1].auctionValue;
   const range = maxVal - minVal || 1;
 
-  // 8 tiers based on value thresholds
-  players.forEach((p, i) => {
+  players.forEach((p) => {
     const pct = (maxVal - p.auctionValue) / range;
     if (pct < 0.1) p.tier = 1;
     else if (pct < 0.25) p.tier = 2;
@@ -304,166 +416,4 @@ function assignTiers(players: ScoredPlayer[]): PlayerWithValue[] {
   });
 
   return players;
-}
-
-// ---- Slot Assignment ----
-
-interface SlotAssignment {
-  type: RosterSlotType;
-  count: number;
-}
-
-/**
- * Assigns players to roster slots using a maximum-value method.
- * Ensures no player is assigned to multiple slots.
- */
-function assignPlayersToRosterSlots(
-  sortedPlayers: Array<{
-    id: number;
-    name: string;
-    team: string;
-    position: "QB" | "RB" | "WR" | "TE";
-    age: number;
-    sourceValue: number;
-    trend30: number | null;
-  }>,
-  settings: LeagueSettings,
-): Array<{
-  id: number;
-  name: string;
-  team: string;
-  position: "QB" | "RB" | "WR" | "TE";
-  age: number;
-  sourceValue: number;
-  trend30: number | null;
-}> {
-  const { numTeams } = settings;
-  const rosterSize = settings.rosterSlots.reduce(
-    (sum, s) => sum + s.count,
-    0,
-  );
-  const totalSlots = numTeams * rosterSize;
-
-  // Count how many of each position we need across the whole league
-  const positionSlots: Record<string, number> = {};
-  for (const slot of settings.rosterSlots) {
-    if (slot.type === "QB") positionSlots.QB = (positionSlots.QB ?? 0) + slot.count * numTeams;
-    else if (slot.type === "RB") positionSlots.RB = (positionSlots.RB ?? 0) + slot.count * numTeams;
-    else if (slot.type === "WR") positionSlots.WR = (positionSlots.WR ?? 0) + slot.count * numTeams;
-    else if (slot.type === "TE") positionSlots.TE = (positionSlots.TE ?? 0) + slot.count * numTeams;
-    else if (slot.type === "FLEX") {
-      // FLEX can be RB/WR/TE - assign to highest value group
-      // We'll handle this dynamically
-    }
-    else if (slot.type === "SUPERFLEX") {
-      // Superflex can be QB/RB/WR/TE
-    }
-  }
-
-  const flexCount = settings.rosterSlots
-    .filter((s) => s.type === "FLEX")
-    .reduce((s, r) => s + r.count, 0) * numTeams;
-
-  const superflexCount = settings.rosterSlots
-    .filter((s) => s.type === "SUPERFLEX")
-    .reduce((s, r) => s + r.count, 0) * numTeams;
-
-  // Assign mandatory starters first, then flex/superflex, then bench
-  const result: Array<{
-    id: number;
-    name: string;
-    team: string;
-    position: "QB" | "RB" | "WR" | "TE";
-    age: number;
-    sourceValue: number;
-    trend30: number | null;
-  }> = [];
-
-  const used = new Set<number>();
-
-  // Helper to take top N from a filtered list
-  function takeTopN(
-    list: typeof sortedPlayers,
-    n: number,
-    filter: (p: typeof sortedPlayers[0]) => boolean,
-  ): typeof sortedPlayers {
-    const taken: typeof sortedPlayers = [];
-    let found = 0;
-    for (const p of list) {
-      if (found >= n) break;
-      if (!used.has(p.id) && filter(p)) {
-        used.add(p.id);
-        taken.push(p);
-        result.push(p);
-        found++;
-      }
-    }
-    return taken;
-  }
-
-  // Step 1: Fill mandatory position slots
-  const qbNeeded = positionSlots.QB ?? 0;
-  const rbNeeded = positionSlots.RB ?? 0;
-  const wrNeeded = positionSlots.WR ?? 0;
-  const teNeeded = positionSlots.TE ?? 0;
-
-  takeTopN(sortedPlayers, qbNeeded, (p) => p.position === "QB");
-  takeTopN(sortedPlayers, rbNeeded, (p) => p.position === "RB");
-  takeTopN(sortedPlayers, wrNeeded, (p) => p.position === "WR");
-  takeTopN(sortedPlayers, teNeeded, (p) => p.position === "TE");
-
-  // Step 2: Fill SUPERFLEX slots (QB/RB/WR/TE - highest value)
-  if (settings.qbFormat === "superflex") {
-    takeTopN(sortedPlayers, superflexCount, (p) =>
-      VALID_SUPERFLEX_POSITIONS.includes(p.position),
-    );
-  }
-
-  // Step 3: Fill FLEX slots (RB/WR/TE - highest value)
-  takeTopN(sortedPlayers, flexCount, (p) =>
-    (FLEX_POSITIONS_LIST as readonly string[]).includes(p.position),
-  );
-
-  // Step 4: Fill bench (highest remaining value)
-  const benchCount = totalSlots - result.length;
-  if (benchCount > 0) {
-    takeTopN(sortedPlayers, benchCount, () => true);
-  }
-
-  return result;
-}
-
-/**
- * Calculate replacement-level value per position.
- */
-function calculateReplacementValues(
-  drafted: Array<{ position: string; sourceValue: number }>,
-  settings: LeagueSettings,
-): Record<string, number> {
-  const teams = settings.numTeams;
-
-  // Count starters per team to determine replacement depth
-  const startersPerTeam: Record<string, number> = {};
-  for (const slot of settings.rosterSlots) {
-    if (slot.type === "QB") startersPerTeam.QB = (startersPerTeam.QB ?? 0) + slot.count;
-    else if (slot.type === "RB") startersPerTeam.RB = (startersPerTeam.RB ?? 0) + slot.count;
-    else if (slot.type === "WR") startersPerTeam.WR = (startersPerTeam.WR ?? 0) + slot.count;
-    else if (slot.type === "TE") startersPerTeam.TE = (startersPerTeam.TE ?? 0) + slot.count;
-  }
-
-  // Replacement = value of the last starter at each position
-  const repl: Record<string, number> = {};
-
-  for (const pos of ["QB", "RB", "WR", "TE"] as const) {
-    const posPlayers = drafted
-      .filter((p) => p.position === pos)
-      .sort((a, b) => b.sourceValue - a.sourceValue);
-
-    const startersCount = (startersPerTeam[pos] ?? 1) * teams;
-    const replIndex = Math.min(startersCount - 1, posPlayers.length - 1);
-
-    repl[pos] = replIndex >= 0 ? posPlayers[replIndex].sourceValue : 0;
-  }
-
-  return repl;
 }

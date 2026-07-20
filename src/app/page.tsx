@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Calculator,
   Table2,
@@ -9,121 +9,200 @@ import {
   RefreshCw,
   Info,
   Shield,
-  FileText,
   ExternalLink,
   AlertTriangle,
   Clock,
+  Bug,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import type { LeagueSettings, PlayerWithValue } from "@/lib/types";
 import { DEFAULT_SETTINGS } from "@/lib/types";
 import { calculateAuctionValues } from "@/lib/auction-model/calculator";
-import { getFantasyCalcData, mergePlayersWithValues } from "@/lib/fantasycalc/adapter";
+import { getFantasyCalcData, clearDataCache } from "@/lib/fantasycalc/adapter";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { PlayerTable } from "@/components/PlayerTable";
 import { DraftBoard } from "@/components/DraftBoard";
 import { DraftRoom } from "@/components/DraftRoom";
+import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
 
 type ViewMode = "list" | "board" | "draft";
 
-export default function Home() {
-  const [settings, setSettings] = useState<LeagueSettings>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("auction-calc-settings");
-        if (saved) return JSON.parse(saved) as LeagueSettings;
-      } catch {}
-    }
-    return DEFAULT_SETTINGS;
-  });
+// ── Types ──
 
+interface RawPlayer {
+  id: number;
+  name: string;
+  team: string;
+  position: "QB" | "RB" | "WR" | "TE";
+  age: number;
+  sourceValue: number;
+  trend30: number | null;
+}
+
+interface DataState {
+  raw: RawPlayer[];
+  metadata: { timestamp: string; source: "api" | "fallback" };
+}
+
+// ── Merge players + values ──
+
+function mergePlayers(
+  players: Array<{ id: number; name: string; position: string; maybeTeam: string | null; maybeAge: number }>,
+  values: Array<{ playerId: number; value: number; trend30Day?: number | null }>,
+): RawPlayer[] {
+  const valueMap = new Map(values.map((v) => [v.playerId, v]));
+  return players
+    .filter((p) => ["QB", "RB", "WR", "TE"].includes(p.position))
+    .map((p) => {
+      const v = valueMap.get(p.id);
+      return {
+        id: p.id,
+        name: p.name,
+        team: p.maybeTeam ?? "FA",
+        position: p.position as "QB" | "RB" | "WR" | "TE",
+        age: p.maybeAge ?? 25,
+        sourceValue: v?.value ?? 0,
+        trend30: v?.trend30Day ?? null,
+      };
+    })
+    .filter((p) => p.sourceValue > 0)
+    .sort((a, b) => b.sourceValue - a.sourceValue);
+}
+
+// ── URL + Storage helpers ──
+
+function loadSettingsFromUrl(): Partial<LeagueSettings> {
+  if (typeof window === "undefined") return {};
+  const params = new URLSearchParams(window.location.search);
+  if (params.size === 0) return {};
+
+  const updates: Partial<LeagueSettings> = {};
+  if (params.has("teams")) updates.numTeams = parseInt(params.get("teams")!);
+  if (params.has("scoring")) updates.scoring = params.get("scoring") as LeagueSettings["scoring"];
+  if (params.has("qb")) updates.qbFormat = params.get("qb") as LeagueSettings["qbFormat"];
+  if (params.has("budget")) updates.budget = parseInt(params.get("budget")!);
+  if (params.has("min")) updates.minBid = parseInt(params.get("min")!);
+  if (params.has("exp")) updates.exponent = parseFloat(params.get("exp")!);
+  if (params.has("format")) updates.format = params.get("format") as LeagueSettings["format"];
+  if (params.has("tep")) updates.tePremium = params.get("tep") as LeagueSettings["tePremium"];
+  if (params.has("roster")) {
+    const slots = params.get("roster")!.split(",").map((s) => {
+      const [type, count] = s.split(":");
+      return { type: type as any, count: parseInt(count) };
+    });
+    if (slots.length > 0) updates.rosterSlots = slots;
+  }
+  return updates;
+}
+
+function loadSettingsFromStorage(): Partial<LeagueSettings> {
+  if (typeof window === "undefined") return {};
+  try {
+    const saved = localStorage.getItem("auction-calc-settings");
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return {};
+}
+
+// ── Main Component ──
+
+export default function Home() {
+  const [settings, setSettings] = useState<LeagueSettings>(DEFAULT_SETTINGS);
   const [allPlayers, setAllPlayers] = useState<PlayerWithValue[]>([]);
+  const [dataState, setDataState] = useState<DataState | null>(null);
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
+  const [dataSource, setDataSource] = useState<"api" | "fallback">("fallback");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
   const [showMethodology, setShowMethodology] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
-  // Raw data store (before auction calculation)
-  const [rawPlayerData, setRawPlayerData] = useState<
-    Array<{
-      id: number;
-      name: string;
-      team: string;
-      position: "QB" | "RB" | "WR" | "TE";
-      age: number;
-      sourceValue: number;
-      trend30: number | null;
-    }>
-  >([]);
+  // Track initialization state
+  const initializedRef = useRef(false);
 
-  // Save settings
+  // ── Boot: load settings from URL/storage, then kick off data fetch ──
   useEffect(() => {
-    localStorage.setItem("auction-calc-settings", JSON.stringify(settings));
-  }, [settings]);
+    if (initializedRef.current) return;
+    initializedRef.current = true;
 
-  // Load data on mount
-  useEffect(() => {
-    loadFantasyCalcData();
+    const fromUrl = loadSettingsFromUrl();
+    const fromStorage = loadSettingsFromStorage();
+    const merged = { ...DEFAULT_SETTINGS, ...fromStorage, ...fromUrl };
+    setSettings(merged);
   }, []);
 
-  async function loadFantasyCalcData() {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getFantasyCalcData();
-      const merged = mergePlayersWithValues(data.players, data.values);
-      setRawPlayerData(merged);
-      setLastRefresh(data.timestamp);
-      // Auto-calculate
-      const result = calculateAuctionValues({
-        players: merged,
-        settings,
-      });
-      setAllPlayers(result.players);
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Failed to load player data",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
+  // ── Data fetch (triggers when API-relevant settings change) ──
+  const fetchKey = useMemo(() => {
+    return `${settings.format}|${settings.scoring}|${settings.qbFormat}|${settings.numTeams}`;
+  }, [settings.format, settings.scoring, settings.qbFormat, settings.numTeams]);
 
-  const doCalculate = useCallback(() => {
-    if (rawPlayerData.length === 0) {
-      loadFantasyCalcData();
-      return;
-    }
+  const prevFetchKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    // Skip until settings are initialized
+    if (!initializedRef.current) return;
+
+    const key = fetchKey;
+    if (key === prevFetchKeyRef.current) return; // already fetched this config
+    prevFetchKeyRef.current = key;
+
+    let cancelled = false;
+    const doFetch = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await getFantasyCalcData(settings);
+        if (cancelled) return;
+        const raw = mergePlayers(result.players, result.values);
+        setDataState({ raw, metadata: { timestamp: result.timestamp, source: result.source } });
+        setLastRefresh(result.timestamp);
+        setDataSource(result.source);
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Failed to load player data");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    doFetch();
+    return () => { cancelled = true; };
+  }, [fetchKey, settings]);
+
+  // ── Recalculate auction values (any time raw data or calculation settings change) ──
+  const calcKey = useMemo(() => {
+    return JSON.stringify({ settings, rawHash: dataState?.raw.map((p) => `${p.id}:${p.sourceValue}`).join(",") });
+  }, [settings, dataState?.raw]);
+
+  useEffect(() => {
+    if (!dataState || dataState.raw.length === 0) return;
+
     setCalculating(true);
-    // Small delay so the UI updates
-    setTimeout(() => {
+    setError(null);
+
+    // Use requestAnimationFrame to avoid blocking the UI thread
+    const id = requestAnimationFrame(() => {
       try {
         const result = calculateAuctionValues({
-          players: rawPlayerData,
+          players: dataState.raw,
           settings,
         });
         setAllPlayers(result.players);
       } catch (e) {
-        setError(
-          e instanceof Error ? e.message : "Calculation failed",
-        );
+        setError(e instanceof Error ? e.message : "Calculation failed");
       } finally {
         setCalculating(false);
       }
-    }, 100);
-  }, [rawPlayerData, settings]);
+    });
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calcKey]);
 
-  // Auto-calculate when settings change
-  useEffect(() => {
-    if (rawPlayerData.length > 0) {
-      doCalculate();
-    }
-  }, [settings.exponent]); // Only auto-calc on exponent change to avoid thrash
-
+  // ── Handlers ──
   function toggleFavorite(playerId: number) {
     setFavorites((prev) => {
       const next = new Set(prev);
@@ -135,11 +214,7 @@ export default function Home() {
 
   function handleToggleDrafted(playerId: number) {
     setAllPlayers((prev) =>
-      prev.map((p) =>
-        p.id === playerId
-          ? { ...p, drafted: !p.drafted }
-          : p,
-      ),
+      prev.map((p) => (p.id === playerId ? { ...p, drafted: !p.drafted } : p)),
     );
   }
 
@@ -147,7 +222,33 @@ export default function Home() {
     setAllPlayers(updated);
   }
 
-  // Build share URL
+  function handleSaveSettings(next: LeagueSettings) {
+    setSettings(next);
+    localStorage.setItem("auction-calc-settings", JSON.stringify(next));
+  }
+
+  function handleResetDefaults() {
+    handleSaveSettings(DEFAULT_SETTINGS);
+  }
+
+  async function handleRefresh() {
+    clearDataCache();
+    prevFetchKeyRef.current = null; // force re-fetch
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await getFantasyCalcData(settings);
+      const raw = mergePlayers(result.players, result.values);
+      setDataState({ raw, metadata: { timestamp: result.timestamp, source: result.source } });
+      setLastRefresh(result.timestamp);
+      setDataSource(result.source);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to refresh data");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function buildShareUrl(): string {
     const params = new URLSearchParams();
     params.set("teams", String(settings.numTeams));
@@ -158,55 +259,46 @@ export default function Home() {
     params.set("min", String(settings.minBid));
     params.set("tep", settings.tePremium);
     params.set("exp", String(settings.exponent));
-
-    const rosterStr = settings.rosterSlots
-      .map((s) => `${s.type}:${s.count}`)
-      .join(",");
+    const rosterStr = settings.rosterSlots.map((s) => `${s.type}:${s.count}`).join(",");
     params.set("roster", rosterStr);
-
     return `${window.location.origin}?${params.toString()}`;
   }
 
   function copyShareUrl() {
-    const url = buildShareUrl();
-    navigator.clipboard.writeText(url);
-    alert("Share URL copied to clipboard!");
+    navigator.clipboard.writeText(buildShareUrl());
   }
 
-  // Load settings from URL params on mount
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.size > 0) {
-      try {
-        const updates: Partial<LeagueSettings> = {};
-        if (params.has("teams"))
-          updates.numTeams = parseInt(params.get("teams")!);
-        if (params.has("scoring"))
-          updates.scoring = params.get("scoring") as LeagueSettings["scoring"];
-        if (params.has("qb"))
-          updates.qbFormat = params.get("qb") as LeagueSettings["qbFormat"];
-        if (params.has("budget"))
-          updates.budget = parseInt(params.get("budget")!);
-        if (params.has("min"))
-          updates.minBid = parseInt(params.get("min")!);
-        if (params.has("exp"))
-          updates.exponent = parseFloat(params.get("exp")!);
-        if (params.has("roster")) {
-          const slots = params.get("roster")!.split(",").map((s) => {
-            const [type, count] = s.split(":");
-            return { type: type as any, count: parseInt(count) };
-          });
-          if (slots.length > 0) updates.rosterSlots = slots;
-        }
-        setSettings((prev) => ({ ...prev, ...updates }));
-      } catch {}
-    }
-  }, []);
+  // ── Derived ──
+  const settingsSummary = useMemo(() => {
+    const scoringLabel =
+      settings.scoring === "standard" ? "Standard" :
+      settings.scoring === "halfPpr" ? "Half PPR" : "Full PPR";
+    const qbLabel = settings.qbFormat === "superflex" ? "Superflex" : "1QB";
+    const rosterCount = settings.rosterSlots.reduce((s, r) => s + r.count, 0);
+    return `${settings.numTeams} teams · ${scoringLabel} · ${qbLabel} · $${settings.budget} budget · ${rosterCount} roster spots`;
+  }, [settings]);
 
-  const totalValue = allPlayers.reduce(
-    (sum, p) => sum + p.auctionValue,
-    0,
-  );
+  const totalValue = allPlayers.reduce((sum, p) => sum + p.auctionValue, 0);
+  const totalBudget = settings.numTeams * settings.budget;
+
+  // ── Diagnostics data ──
+  const diagnosticsProps = useMemo(() => ({
+    settings,
+    dataSource,
+    lastRefresh,
+    rawDataCount: dataState?.raw.length ?? 0,
+    playerCount: allPlayers.length,
+    totalValue,
+    totalBudget,
+    draftedCount: allPlayers.filter((p) => p.auctionValue > 0).length,
+    loading,
+    calculating,
+    error,
+    onClose: () => setShowDiagnostics(false),
+    replacementValues: allPlayers.length > 0 ? undefined : undefined,
+  }), [settings, dataSource, lastRefresh, dataState, allPlayers, totalValue, totalBudget, loading, calculating, error]);
+
+  // ── Render ──
 
   return (
     <div className="min-h-screen">
@@ -219,6 +311,15 @@ export default function Home() {
           </span>
 
           <div className="flex-1" />
+
+          {/* Diagnostics toggle */}
+          <button
+            onClick={() => setShowDiagnostics(!showDiagnostics)}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            title="Toggle diagnostics panel"
+          >
+            <Bug size={14} />
+          </button>
 
           <ThemeToggle />
 
@@ -241,6 +342,34 @@ export default function Home() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* Diagnostics Panel */}
+        {showDiagnostics && (
+          <DiagnosticsPanel
+            settings={settings}
+            dataSource={dataSource}
+            lastRefresh={lastRefresh}
+            rawDataCount={dataState?.raw.length ?? 0}
+            playerCount={allPlayers.length}
+            totalValue={totalValue}
+            totalBudget={totalBudget}
+            draftedCount={allPlayers.filter((p) => p.auctionValue > 0).length}
+            loading={loading}
+            calculating={calculating}
+            error={error}
+            replacementValues={
+              allPlayers.length > 0
+                ? {
+                    QB: allPlayers.filter(p => p.position === "QB" && p.auctionValue === 0)[0]?.sourceValue ?? 0,
+                    RB: allPlayers.filter(p => p.position === "RB" && p.auctionValue === 0)[0]?.sourceValue ?? 0,
+                    WR: allPlayers.filter(p => p.position === "WR" && p.auctionValue === 0)[0]?.sourceValue ?? 0,
+                    TE: allPlayers.filter(p => p.position === "TE" && p.auctionValue === 0)[0]?.sourceValue ?? 0,
+                  }
+                : undefined
+            }
+            onClose={() => setShowDiagnostics(false)}
+          />
+        )}
+
         {/* Attribution banner */}
         <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-3 text-xs text-blue-700 dark:text-blue-300">
           <p>
@@ -258,9 +387,16 @@ export default function Home() {
             endorsed by FantasyCalc.
           </p>
           {lastRefresh && (
-            <p className="mt-1 flex items-center gap-1">
-              <Clock size={12} />
-              Data refreshed: {new Date(lastRefresh).toLocaleTimeString()}
+            <p className="mt-1 flex items-center gap-1 flex-wrap">
+              <span className="flex items-center gap-1">
+                <Clock size={12} />
+                Data refreshed: {new Date(lastRefresh).toLocaleTimeString()}
+              </span>
+              {dataSource === "fallback" && (
+                <span className="inline-flex items-center gap-1 ml-2 text-amber-600 dark:text-amber-400">
+                  · Using local fallback data (API unavailable)
+                </span>
+              )}
             </p>
           )}
         </div>
@@ -269,40 +405,36 @@ export default function Home() {
         {error && (
           <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-4 py-3 text-sm text-red-700 dark:text-red-300 flex items-center gap-2">
             <AlertTriangle size={16} />
-            {error}
+            <span>{error}</span>
             <button
-              onClick={loadFantasyCalcData}
-              className="ml-auto underline hover:no-underline"
+              onClick={handleRefresh}
+              className="ml-auto underline hover:no-underline whitespace-nowrap"
             >
               Retry
             </button>
           </div>
         )}
 
-        {/* Settings */}
-        <SettingsPanel settings={settings} onChange={setSettings} />
+        {/* Settings panel */}
+        <SettingsPanel settings={settings} onChange={handleSaveSettings} />
 
         {/* Action bar */}
         <div className="flex flex-wrap items-center gap-3">
           <button
-            onClick={doCalculate}
-            disabled={loading || calculating}
+            onClick={handleRefresh}
+            disabled={loading}
             className={cn(
               "flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all",
               "bg-primary text-primary-foreground hover:bg-primary/90",
               "disabled:opacity-50 disabled:cursor-not-allowed",
             )}
           >
-            {loading || calculating ? (
+            {loading ? (
               <RefreshCw size={18} className="animate-spin" />
             ) : (
               <Calculator size={18} />
             )}
-            {loading
-              ? "Loading..."
-              : calculating
-                ? "Calculating..."
-                : "Calculate Values"}
+            {loading ? "Loading..." : "Refresh & Recalculate"}
           </button>
 
           {/* View switcher */}
@@ -350,19 +482,33 @@ export default function Home() {
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
           >
             <ExternalLink size={14} />
-            Share Settings
+            Copy Share URL
+          </button>
+
+          <button
+            onClick={handleResetDefaults}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
+          >
+            Reset Defaults
           </button>
 
           <div className="flex-1" />
 
-          {allPlayers.length > 0 && (
+          {!loading && allPlayers.length > 0 && (
             <div className="text-xs text-muted-foreground tabular-nums">
               {allPlayers.length} players · Total:{" "}
-              {formatCurrency(totalValue)} ·{" "}
+              {formatCurrency(totalValue)}·
               {allPlayers.filter((p) => p.auctionValue > 0).length} drafted
             </div>
           )}
         </div>
+
+        {/* Settings summary */}
+        {!loading && settingsSummary && (
+          <div className="text-xs text-muted-foreground text-center sm:text-left">
+            {settingsSummary}
+          </div>
+        )}
 
         {/* Loading state */}
         {loading && (
@@ -373,14 +519,29 @@ export default function Home() {
                 className="animate-spin mx-auto mb-3 text-primary"
               />
               <p className="text-muted-foreground">
-                Loading player data from FantasyCalc...
+                Loading player data...
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Calculating overlay */}
+        {calculating && !loading && (
+          <div className="flex items-center justify-center py-8">
+            <div className="text-center">
+              <RefreshCw
+                size={20}
+                className="animate-spin mx-auto mb-2 text-primary"
+              />
+              <p className="text-xs text-muted-foreground">
+                Recalculating values...
               </p>
             </div>
           </div>
         )}
 
         {/* Results */}
-        {!loading && viewMode === "list" && (
+        {!loading && !error && viewMode === "list" && allPlayers.length > 0 && (
           <div className="bg-card border border-border rounded-xl p-4">
             <PlayerTable
               players={allPlayers}
@@ -391,7 +552,7 @@ export default function Home() {
           </div>
         )}
 
-        {!loading && viewMode === "board" && (
+        {!loading && !error && viewMode === "board" && allPlayers.length > 0 && (
           <div className="bg-card border border-border rounded-xl p-4">
             <DraftBoard
               players={allPlayers}
@@ -400,12 +561,23 @@ export default function Home() {
           </div>
         )}
 
-        {!loading && viewMode === "draft" && (
+        {!loading && !error && viewMode === "draft" && allPlayers.length > 0 && (
           <DraftRoom
             players={allPlayers}
             settings={settings}
             onUpdatePlayers={handleUpdatePlayers}
           />
+        )}
+
+        {/* Empty state */}
+        {!loading && !calculating && !error && allPlayers.length === 0 && (
+          <div className="flex items-center justify-center py-20">
+            <div className="text-center text-muted-foreground">
+              <Calculator size={48} className="mx-auto mb-3 opacity-50" />
+              <p>No player data loaded.</p>
+              <p className="text-sm mt-1">Adjust your settings and try refreshing.</p>
+            </div>
+          </div>
         )}
 
         {/* Methodology modal */}
@@ -424,12 +596,11 @@ export default function Home() {
               <div className="space-y-3 text-sm text-muted-foreground">
                 <p>
                   <strong>1. Total League Budget</strong> — Number of teams ×
-                  budget per team.
+                  budget per team. Default: 12 × $1,000 = $12,000.
                 </p>
                 <p>
                   <strong>2. Reserve Minimum Bids</strong> — Every drafted
-                  player gets at least the minimum bid. This reserved amount is
-                  subtracted from the total budget.
+                  player gets at least the minimum bid.
                 </p>
                 <p>
                   <strong>3. Build Player Pool</strong> — Based on roster
@@ -437,24 +608,22 @@ export default function Home() {
                   using a maximum-value slot assignment.
                 </p>
                 <p>
-                  <strong>4. Replacement Level</strong> — For each position, the
-                  value of the worst starter defines &ldquo;replacement
-                  level.&rdquo;
+                  <strong>4. Replacement Level</strong> — For each position,
+                  the best undrafted player defines the marginal replacement
+                  value. This accounts for the full drafted pool (starters,
+                  FLEX, and bench).
                 </p>
                 <p>
-                  <strong>5. Surplus Value</strong> — Each player&apos;s
-                  FantasyCalc value minus the replacement value at their
-                  position. Only positive surplus counts.
+                  <strong>5. Surplus Value</strong> — Each player's FantasyCalc
+                  value minus the replacement value at their position.
                 </p>
                 <p>
-                  <strong>6. Weighted Allocation</strong> — Surplus is raised to
-                  an exponent (default 1.10) to create weights. Higher exponent
-                  = more money to elite players.
+                  <strong>6. Weighted Allocation</strong> — Surplus is raised
+                  to an exponent (default 1.0 = Balanced) to create weights.
                 </p>
                 <p>
-                  <strong>7. Rounding</strong> — The largest-remainder method
-                  ensures every dollar is allocated exactly and the total equals
-                  the league budget.
+                  <strong>7. Rounding</strong> — Largest-remainder method
+                  ensures the total equals the exact league-wide budget.
                 </p>
                 <div className="bg-muted rounded-lg p-3 mt-2">
                   <p className="font-medium text-foreground mb-1">
@@ -462,10 +631,8 @@ export default function Home() {
                   </p>
                   <p>
                     These are <strong>modeled fair values</strong> based on
-                    FantasyCalc trade market data. Actual auction prices vary
-                    based on your league&apos;s specific dynamics, draft
-                    strategy, and player preferences. This is an entertainment
-                    and informational tool.
+                    FantasyCalc trade market data. Actual auction prices vary.
+                    This is an entertainment and informational tool.
                   </p>
                 </div>
               </div>
