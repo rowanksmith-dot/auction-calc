@@ -382,7 +382,7 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
               <SortHeader label="Pos" sortKey="position" />
               <SortHeader label="Pos Rank" sortKey="positionRank" />
               <SortHeader label="Auction $" sortKey="auctionValue" />
-              <SortHeader label="Source" sortKey="sourceValue" />
+              <SortHeader label="Value" sortKey="sourceValue" />
               <SortHeader label="Tier" sortKey="tier" />
               <SortHeader label="30-Day" sortKey="trend30" />
               {!compact && <th className="px-3 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</th>}
@@ -441,9 +441,7 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
                   {formatCurrency(p.auctionValue)}
                 </td>
                 <td className="px-3 py-2.5 text-muted-foreground font-mono text-xs tabular-nums">
-                  {p.scaledValue !== p.sourceValue
-                    ? <span className="text-blue-500">{p.scaledValue}</span>
-                    : p.sourceValue}
+                  {Math.round(p.scaledValue)}
                 </td>
                 <td className="px-3 py-2.5">
                   <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-secondary text-xs font-medium">
