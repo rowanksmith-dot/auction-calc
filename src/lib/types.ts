@@ -37,7 +37,7 @@ export const LeagueSettingsSchema = z.object({
     { type: "FLEX", count: 2 },
     { type: "BENCH", count: 7 },
   ]),
-  exponent: z.number().min(0.5).max(3).default(1.1),
+  exponent: z.number().min(0.5).max(3).default(1.0),
 });
 
 export type LeagueSettings = z.infer<typeof LeagueSettingsSchema>;
@@ -59,7 +59,7 @@ export const DEFAULT_SETTINGS: LeagueSettings = {
     { type: "FLEX", count: 2 },
     { type: "BENCH", count: 7 },
   ],
-  exponent: 1.1,
+  exponent: 1.0,
 };
 
 // ---- Player Data ----

@@ -448,9 +448,47 @@ export function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
                     {settings.exponent.toFixed(2)}
                   </span>
                 </div>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => update("exponent", 0.85)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
+                      settings.exponent === 0.85
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+                    )}
+                  >
+                    0.85 — Flatter
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => update("exponent", 1.0)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
+                      settings.exponent === 1.0
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+                    )}
+                  >
+                    1.0 — Balanced
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => update("exponent", 1.15)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
+                      settings.exponent === 1.15
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+                    )}
+                  >
+                    1.15 — Stars & Scrubs
+                  </button>
+                </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Default: 1.10. Lower values spread money more evenly; higher
-                  values concentrate it on top players.
+                  Default: 1.0 (Balanced). Lower values spread money more
+                  evenly; higher values concentrate it on top players.
                 </p>
               </div>
             )}
