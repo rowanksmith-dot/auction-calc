@@ -237,8 +237,8 @@ describe("Phase 6: Auction Model Tests", () => {
     const bigRoster: LeagueSettings = {
       ...DEFAULT_SETTINGS,
       rosterSlots: [
-        { type: "QB", count: 1 }, { type: "RB", count: 2 }, { type: "WR", count: 3 },
-        { type: "TE", count: 1 }, { type: "FLEX", count: 2 }, { type: "BENCH", count: 10 },
+        { type: "QB", count: 2 }, { type: "RB", count: 3 }, { type: "WR", count: 4 },
+        { type: "TE", count: 2 }, { type: "FLEX", count: 3 }, { type: "BENCH", count: 11 },
       ],
     };
 

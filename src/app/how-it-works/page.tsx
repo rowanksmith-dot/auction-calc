@@ -155,7 +155,7 @@ export default function HowItWorksPage() {
             weight = surplus ^ exponent
           </div>
           <p>
-            The default exponent (<strong>0.85 — Flatter</strong>) spreads value more evenly,
+            The default exponent (<strong>1.0 — Balanced</strong>) gives a proportional
             proportional allocation. Available presets:
           </p>
           <ul className="list-disc pl-5 space-y-1">

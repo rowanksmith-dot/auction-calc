@@ -18,12 +18,12 @@ export const RosterSlotType = z.enum(["QB", "RB", "WR", "TE", "FLEX", "SUPERFLEX
 export type RosterSlotType = z.infer<typeof RosterSlotType>;
 
 export const LeagueSettingsSchema = z.object({
-  format: LeagueFormat.default("redraft"),
+  format: LeagueFormat.default("dynasty"),
   numTeams: z.number().int().min(8).max(16).default(12),
   scoring: ScoringType.default("fullPpr"),
   tePremium: TE_PremiumType.default("off"),
   tePremiumCustom: z.number().min(0).max(3).default(0),
-  qbFormat: QBFormat.default("oneQb"),
+  qbFormat: QBFormat.default("superflex"),
   budget: z.number().int().positive().default(1000),
   minBid: z.number().int().positive().default(1),
   rosterSlots: z.array(z.object({
@@ -35,20 +35,21 @@ export const LeagueSettingsSchema = z.object({
     { type: "WR", count: 2 },
     { type: "TE", count: 1 },
     { type: "FLEX", count: 2 },
-    { type: "BENCH", count: 7 },
+    { type: "SUPERFLEX", count: 1 },
+    { type: "BENCH", count: 10 },
   ]),
-  exponent: z.number().min(0.5).max(3).default(0.85),
+  exponent: z.number().min(0.5).max(3).default(1.0),
 });
 
 export type LeagueSettings = z.infer<typeof LeagueSettingsSchema>;
 
 export const DEFAULT_SETTINGS: LeagueSettings = {
-  format: "redraft",
+  format: "dynasty",
   numTeams: 12,
   scoring: "fullPpr",
   tePremium: "off",
   tePremiumCustom: 0,
-  qbFormat: "oneQb",
+  qbFormat: "superflex",
   budget: 1000,
   minBid: 1,
   rosterSlots: [
@@ -57,9 +58,10 @@ export const DEFAULT_SETTINGS: LeagueSettings = {
     { type: "WR", count: 2 },
     { type: "TE", count: 1 },
     { type: "FLEX", count: 2 },
-    { type: "BENCH", count: 7 },
+    { type: "SUPERFLEX", count: 1 },
+    { type: "BENCH", count: 10 },
   ],
-  exponent: 0.85,
+  exponent: 1.0,
 };
 
 // ---- Player Data ----
