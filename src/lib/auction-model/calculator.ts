@@ -419,25 +419,15 @@ function assignRanksAndTiers(players: ScoredPlayer[]): PlayerWithValue[] {
 function assignTiers(players: ScoredPlayer[]): PlayerWithValue[] {
   if (players.length === 0) return [];
 
-  const maxVal = players[0].auctionValue;
-  const minVal = players[players.length - 1].auctionValue;
-  const range = maxVal - minVal || 1;
+  // Use equal-sized buckets sorted by auctionValue descending.
+  // This guarantees every tier has roughly the same number of players
+  // and avoids empty/gap tiers that happen with fixed percentage thresholds.
+  const numTiers = 12;
+  const bucketSize = Math.max(2, Math.floor(players.length / numTiers));
+  const totalBuckets = Math.min(numTiers, Math.ceil(players.length / bucketSize));
 
-  // 12 tighter tiers — roughly $5-8 increments for a $250 budget
-  players.forEach((p) => {
-    const pct = (maxVal - p.auctionValue) / range;
-    if (pct < 0.04) p.tier = 1;
-    else if (pct < 0.08) p.tier = 2;
-    else if (pct < 0.14) p.tier = 3;
-    else if (pct < 0.21) p.tier = 4;
-    else if (pct < 0.29) p.tier = 5;
-    else if (pct < 0.38) p.tier = 6;
-    else if (pct < 0.47) p.tier = 7;
-    else if (pct < 0.57) p.tier = 8;
-    else if (pct < 0.67) p.tier = 9;
-    else if (pct < 0.78) p.tier = 10;
-    else if (pct < 0.89) p.tier = 11;
-    else p.tier = 12;
+  players.forEach((p, idx) => {
+    p.tier = Math.min(Math.floor(idx / bucketSize) + 1, totalBuckets);
   });
 
   return players;
