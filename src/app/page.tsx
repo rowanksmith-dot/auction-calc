@@ -108,7 +108,13 @@ function loadSettingsFromStorage(): Partial<LeagueSettings> {
 // ── Main Component ──
 
 export default function Home() {
-  const [settings, setSettings] = useState<LeagueSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<LeagueSettings>(
+    () => {
+      const fromUrl = loadSettingsFromUrl();
+      const fromStorage = loadSettingsFromStorage();
+      return { ...DEFAULT_SETTINGS, ...fromStorage, ...fromUrl };
+    },
+  );
   const [allPlayers, setAllPlayers] = useState<PlayerWithValue[]>([]);
   const [dataState, setDataState] = useState<DataState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -121,19 +127,7 @@ export default function Home() {
   const [showMethodology, setShowMethodology] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
 
-  // Track initialization state
-  const initializedRef = useRef(false);
 
-  // ── Boot: load settings from URL/storage, then kick off data fetch ──
-  useEffect(() => {
-    if (initializedRef.current) return;
-    initializedRef.current = true;
-
-    const fromUrl = loadSettingsFromUrl();
-    const fromStorage = loadSettingsFromStorage();
-    const merged = { ...DEFAULT_SETTINGS, ...fromStorage, ...fromUrl };
-    setSettings(merged);
-  }, []);
 
   // ── Data fetch (triggers when API-relevant settings change) ──
   const fetchKey = useMemo(() => {
@@ -143,11 +137,8 @@ export default function Home() {
   const prevFetchKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    // Skip until settings are initialized
-    if (!initializedRef.current) return;
-
     const key = fetchKey;
-    if (key === prevFetchKeyRef.current) return; // already fetched this config
+    if (key === prevFetchKeyRef.current) return;
     prevFetchKeyRef.current = key;
 
     let cancelled = false;
@@ -233,7 +224,7 @@ export default function Home() {
 
   async function handleRefresh() {
     clearDataCache();
-    prevFetchKeyRef.current = null; // force re-fetch
+    prevFetchKeyRef.current = null;
     setLoading(true);
     setError(null);
     try {
