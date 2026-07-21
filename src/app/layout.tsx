@@ -20,7 +20,7 @@ export default function RootLayout({
             __html: `
               try {
                 let theme = localStorage.getItem('auction-calc-theme');
-                if (!theme) theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                if (!theme) theme = 'dark';
                 document.documentElement.classList.toggle('dark', theme === 'dark');
               } catch(e) {}
             `,
