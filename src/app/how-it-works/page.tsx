@@ -180,7 +180,13 @@ export default function HowItWorksPage() {
             <p>playerValue = minBid + discretionaryBudget × (weight / totalWeight)</p>
           </div>
           <p>
-            Values are rounded to whole dollars using the{" "}
+            Before rounding, players whose surplus is less than 15% of the
+            maximum surplus at their position are clamped to the minimum bid.
+            This reflects the reality that fringe roster players are all
+            replacement-level dart throws worth little more than the minimum.
+          </p>
+          <p>
+            Values are then rounded to whole dollars using the{" "}
             <strong>largest-remainder method</strong>, which guarantees:
           </p>
           <ul className="list-disc pl-5 space-y-1">

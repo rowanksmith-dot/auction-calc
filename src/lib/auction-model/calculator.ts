@@ -4,7 +4,7 @@
  * Converts FantasyCalc market values into auction-dollar values using
  * a replacement-based model with proportional allocation.
  *
- * Methodology (8-step):
+ * Methodology (9-step):
  * 1. Total league budget = teams × budgetPerTeam
  * 2. Drafted player count = teams × rosterSize
  * 3. Reserved minimum budget = draftedCount × minBid
@@ -12,7 +12,9 @@
  * 5. Construct legal league-wide player pool (max-value slot assignment)
  * 6. Replacement level = value of the best UNDRAFTED player at each position
  * 7. Surplus = max(playerValue - replacement[pos], 0), weight = surplus^exponent
- * 8. Round using largest-remainder method
+ * 8. Distribute discretionary budget proportional to weight
+ * 8b. Clamp replacement-level fringe (surplus < 15% of max at position) to min bid
+ * 9. Round using largest-remainder method
  *
  * IMPORTANT: Replacement level uses the best undrafted player (marginal roster
  * boundary), NOT the worst starter. This gives a market-correct replacement
@@ -159,6 +161,45 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
     ...p,
     rawValue: minBid + discretionaryBudget * (p.weight / totalWeight),
   }));
+
+  // ── Step 8b: Clamp near-replacement players to minimum bid ──
+  // Players whose surplus is less than 15% of the max surplus at their
+  // position are effectively replacement-level and get minimum bid.
+  // The freed-up discretionary budget is redistributed to remaining players.
+  const maxSurplusByPos: Record<string, number> = {};
+  for (const p of scored) {
+    if (!maxSurplusByPos[p.position] || p.surplus > maxSurplusByPos[p.position]) {
+      maxSurplusByPos[p.position] = p.surplus;
+    }
+  }
+  const replacementRatio = 0.15; // 15% of max surplus at position
+
+  let reclaimedBudget = 0;
+  let remainingWeight = 0;
+  const clamped = new Set<number>(); // indices that got clamped
+
+  // First pass: identify clamped players and calculate totals
+  for (let i = 0; i < distributed.length; i++) {
+    const p = distributed[i];
+    const maxS = maxSurplusByPos[p.position] ?? 0;
+    if (maxS > 0 && p.surplus / maxS < replacementRatio) {
+      reclaimedBudget += p.rawValue - minBid;
+      clamped.add(i);
+    } else {
+      remainingWeight += p.weight;
+    }
+  }
+
+  // Second pass: redistribute reclaimed budget to non-clamped players
+  if (reclaimedBudget > 0 && remainingWeight > 0) {
+    for (let i = 0; i < distributed.length; i++) {
+      if (clamped.has(i)) {
+        distributed[i].rawValue = minBid;
+      } else if (distributed[i].weight > 0) {
+        distributed[i].rawValue += reclaimedBudget * (distributed[i].weight / remainingWeight);
+      }
+    }
+  }
 
   const result = finalizeResults(distributed, {
     totalLeagueBudget, reservedMinimumBudget, discretionaryBudget,
