@@ -88,6 +88,11 @@ export function DraftRoom({
     playerIdx: number;
   } | null>(null);
   const [editBidValue, setEditBidValue] = useState("");
+  const [bidModal, setBidModal] = useState<{
+    player: PlayerWithValue;
+  } | null>(null);
+  const [bidAmount, setBidAmount] = useState("");
+  const [bidError, setBidError] = useState<string | null>(null);
 
   // Save state
   useEffect(() => {
@@ -142,22 +147,27 @@ export function DraftRoom({
     onUpdatePlayers(updated);
   }, [draftActions, teams.length]);
 
-  function draftPlayer(playerId: number) {
+  function openBidModal(playerId: number) {
     const player = players.find((p) => p.id === playerId);
     if (!player || player.drafted) return;
+    setBidModal({ player });
+    setBidAmount(String(player.auctionValue));
+    setBidError(null);
+  }
 
-    const bidStr = window.prompt(
-      `Winning bid for ${player.name}:`,
-      String(player.auctionValue),
-    );
-    if (bidStr === null) return;
-    const bid = parseInt(bidStr);
-    if (isNaN(bid) || bid <= 0) return;
+  function confirmBid() {
+    if (!bidModal) return;
+    const { player } = bidModal;
+    const bid = parseInt(bidAmount);
+    if (isNaN(bid) || bid <= 0) {
+      setBidError("Enter a valid bid amount");
+      return;
+    }
 
     const team = teams[selectedTeam];
     if (!team) return;
     if (team.spent + bid > team.budget) {
-      alert(
+      setBidError(
         `${team.name} only has ${formatCurrency(team.budget - team.spent)} remaining.`,
       );
       return;
@@ -175,8 +185,11 @@ export function DraftRoom({
     });
 
     setTeams(updatedTeams);
-    setDraftActions([...draftActions, { playerId, teamIdx: selectedTeam, bid }]);
+    setDraftActions([...draftActions, { playerId: player.id, teamIdx: selectedTeam, bid }]);
     setSelectedTeam((selectedTeam + 1) % teams.length);
+    setBidModal(null);
+    setBidAmount("");
+    setBidError(null);
   }
 
   function undoLast() {
@@ -453,53 +466,83 @@ export function DraftRoom({
                 </div>
               </div>
 
-              {/* Players list */}
-              <div className="p-2 space-y-1 min-h-[60px]">
-                {team.players.length === 0 && (
-                  <div className="text-[10px] text-muted-foreground text-center py-2 italic">
-                    empty
-                  </div>
-                )}
-                {team.players.map((p, idx) => {
-                  const pc = POS_COLORS[p.position] ?? POS_COLORS.WR;
-                  const indicator = valueIndicator(
-                    p.winningBid ?? 0,
-                    p.auctionValue,
-                    thresholds.bargain,
-                    thresholds.overpay,
-                  );
-                  return (
-                    <div
-                      key={p.id}
-                      className={cn(
-                        "flex items-center justify-between px-2 py-1 rounded-md text-xs border",
-                        pc.bg,
-                        pc.border,
-                      )}
-                    >
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className={cn("text-[10px] font-bold uppercase shrink-0", pc.text)}>
-                          {p.position}
-                        </span>
-                        <span className="truncate text-foreground text-[11px]">
-                          {p.name.split(" ").pop()}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <span className={cn("font-mono tabular-nums text-[11px]", indicator.color)}>
-                          {formatCurrency(p.winningBid ?? 0)}
-                        </span>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); editWinningBid(i, idx); }}
-                          className="opacity-0 hover:opacity-100 transition-opacity text-muted-foreground"
-                          title="Edit bid"
-                        >
-                          <Edit3 size={9} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+              {/* Roster slots */}
+              <div className="p-1.5 space-y-0.5 min-h-[60px]">
+                {settings.rosterSlots
+                  .filter((s) => s.type !== "BENCH")
+                  .map((slot) => {
+                    // Find players assigned to this slot position
+                    const posPlayers = team.players.filter((p) => {
+                      if (slot.type === "FLEX")
+                        return ["RB", "WR", "TE"].includes(p.position);
+                      if (slot.type === "SUPERFLEX")
+                        return ["QB", "RB", "WR", "TE"].includes(p.position);
+                      return p.position === slot.type;
+                    });
+
+                    // Show up to slot.count rows for this position
+                    const rows: React.ReactNode[] = [];
+                    for (let s = 0; s < slot.count; s++) {
+                      const player = posPlayers[s];
+                      if (player) {
+                        const pc = POS_COLORS[player.position] ?? POS_COLORS.WR;
+                        const indicator = valueIndicator(
+                          player.winningBid ?? 0,
+                          player.auctionValue,
+                          thresholds.bargain,
+                          thresholds.overpay,
+                        );
+                        const pIdx = team.players.indexOf(player);
+                        rows.push(
+                          <div
+                            key={`${slot.type}-${s}-filled`}
+                            className={cn(
+                              "flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border",
+                              pc.bg,
+                              pc.border,
+                            )}
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>
+                                {slot.type === "FLEX" ? "FX" : slot.type === "SUPERFLEX" ? "SF" : slot.type}
+                              </span>
+                              <span className="truncate text-foreground text-[10px]">
+                                {player.name}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <span className={cn("font-mono tabular-nums text-[10px]", indicator.color)}>
+                                {formatCurrency(player.winningBid ?? 0)}
+                              </span>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); editWinningBid(i, pIdx); }}
+                                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground"
+                                title="Edit bid"
+                              >
+                                <Edit3 size={8} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      } else {
+                        const pc = POS_COLORS[slot.type as string] ?? { bg: "bg-muted/30", text: "text-muted-foreground", border: "border-border/50" };
+                        rows.push(
+                          <div
+                            key={`${slot.type}-${s}-empty`}
+                            className={cn(
+                              "flex items-center px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed",
+                              pc.border,
+                            )}
+                          >
+                            <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>
+                              {slot.type === "FLEX" ? "FX" : slot.type === "SUPERFLEX" ? "SF" : slot.type}
+                            </span>
+                          </div>
+                        );
+                      }
+                    }
+                    return rows;
+                  })}
               </div>
 
               {/* Remaining slots */}
@@ -555,7 +598,7 @@ export function DraftRoom({
               return (
                 <button
                   key={p.id}
-                  onClick={() => draftPlayer(p.id)}
+                  onClick={() => openBidModal(p.id)}
                   className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-muted transition-colors text-left group"
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -590,6 +633,67 @@ export function DraftRoom({
           )}
         </div>
       </div>
+
+      {/* Bid modal */}
+      {bidModal !== null && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4">
+          <div className="bg-card rounded-xl border border-border p-5 max-w-sm w-full">
+            <h3 className="text-base font-semibold mb-1">Enter Winning Bid</h3>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm font-medium">{bidModal.player.name}</span>
+              <span className={cn("text-xs font-bold uppercase px-1.5 py-0.5 rounded", POS_COLORS[bidModal.player.position]?.bg, POS_COLORS[bidModal.player.position]?.text)}>
+                {bidModal.player.position}
+              </span>
+              <span className="text-xs text-muted-foreground">{bidModal.player.team}</span>
+            </div>
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs text-muted-foreground">Modeled value:</span>
+              <span className="text-sm font-mono font-semibold">{formatCurrency(bidModal.player.auctionValue)}</span>
+              <span className="text-xs text-muted-foreground mx-1">|</span>
+              <span className="text-xs text-muted-foreground">Drafting for:</span>
+              <span className="text-sm font-semibold text-primary">{teams[selectedTeam]?.name}</span>
+            </div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs text-muted-foreground">$</span>
+              <input
+                type="number"
+                min={1}
+                value={bidAmount}
+                onChange={(e) => { setBidAmount(e.target.value); setBidError(null); }}
+                className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-lg font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+                autoFocus
+                onKeyDown={(e) => { if (e.key === "Enter") confirmBid(); if (e.key === "Escape") setBidModal(null); }}
+              />
+              <button
+                onClick={() => setBidAmount(String(bidModal.player.auctionValue))}
+                className="px-2 py-1.5 rounded-md text-xs bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors shrink-0"
+              >
+                Suggested
+              </button>
+            </div>
+            {bidError && (
+              <p className="text-xs text-red-500 mb-2">{bidError}</p>
+            )}
+            <p className="text-xs text-muted-foreground mb-4">
+              Max bid: {formatCurrency(getMaxBid(teams[selectedTeam] ?? { budget: 0, spent: 0, players: [], name: "" }))} · {teams[selectedTeam]?.budget - teams[selectedTeam]?.spent - (parseInt(bidAmount) || 0) < 0 ? "⚠️ " : ""}{formatCurrency((teams[selectedTeam]?.budget ?? 0) - (teams[selectedTeam]?.spent ?? 0) - (parseInt(bidAmount) || 0))} remaining
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setBidModal(null)}
+                className="flex-1 py-2.5 rounded-lg bg-secondary text-secondary-foreground font-medium text-sm hover:bg-secondary/80 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmBid}
+                className="flex-1 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors"
+              >
+                Confirm Bid
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit bid modal */}
       {editBidFor !== null && (
