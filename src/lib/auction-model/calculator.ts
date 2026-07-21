@@ -113,34 +113,14 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
   else if (settings.tePremium === "custom")
     tepScalar = 1 + settings.tePremiumCustom * 0.3;
 
-  // ── Step 6: Surplus, weights, and tier-compressed surplus ──
-  // Tier thresholds are proportional to the old static values (which assumed
-  // a ~10000 max) but dynamically rescaled to the actual data max. This way
-  // tiers work on any value scale (FantasyCalc ~0-100 or larger).
-  const maxSv = drafted.reduce(
-    (max, p) => Math.max(max, p.position === "TE" ? p.sourceValue * tepScalar : p.sourceValue),
-    0
-  );
-  // Old threshold ratios (relative to 10000) used as proportions
-  const tierCuts = [0.80, 0.60, 0.50, 0.40, 0.35, 0.30, 0.25, 0.22, 0.19, 0.17, 0.15, 0.13, 0.11, 0.10, 0];
-  function getTier(sv: number): number {
-    for (let i = 0; i < tierCuts.length; i++) {
-      if (sv >= maxSv * tierCuts[i]) return i + 1;
-    }
-    return 15;
-  }
-
+  // ── Step 6: Surplus ──
   const scored: ScoredPlayer[] = drafted.map((p) => {
     const scaledValue = p.position === "TE" ? p.sourceValue * tepScalar : p.sourceValue;
     const repl = replacementValues[p.position] ?? 0;
     const surplus = Math.max(scaledValue - repl, 0);
     const sv = Math.round(scaledValue * 100) / 100;
-    const tier = getTier(sv);
-    // Tier compressed surplus: lower tiers get their surplus reduced.
-    // Tier 1 keeps 100% of surplus. Tier 15 keeps ~15% of surplus.
-    const tierCompression = 1 - ((tier - 1) / 14) * 0.85;
-    const compressedSurplus = surplus * tierCompression;
-    const effectiveSurplus = compressedSurplus + 0.2;
+    // Tier 1 gets full weight, lowest tiers lose weight via surplus floor
+    const effectiveSurplus = surplus + 0.2;
     const weight = Math.pow(effectiveSurplus, settings.exponent) - Math.pow(0.2, settings.exponent);
     return {
       ...p,
@@ -148,7 +128,7 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
       auctionValue: 0,
       positionRank: 0,
       overallRank: 0,
-      tier,
+      tier: 0,  // set in assignTiers
       drafted: true,
       winningBid: null,
       draftedBy: null,
@@ -158,10 +138,6 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
     };
   });
 
-  // ── Step 7: Surplus-only weight compression ──
-  // A stronger surplus floor means low-surplus players get proportionally
-  // much less weight. No tier-based adjustments needed — the surplus math
-  // naturally handles the gradual drop-off.
   for (const p of scored) {
     if (p.surplus <= 0) {
       p.weight = 0;
@@ -485,14 +461,18 @@ function assignRanksAndTiers(players: ScoredPlayer[]): PlayerWithValue[] {
 function assignTiers(players: ScoredPlayer[]): PlayerWithValue[] {
   if (players.length === 0) return [];
 
-  // Static tier thresholds matching the compressed system in Step 6.
-  // Scaled for FantasyCalc's 0-100 value range.
+  // Tiers based on scaledValue (TEP-aware, ~0-10000 scale)
+  // Tier 1:  8000+      Tier 6:  3000-3500   Tier 11: 1500-1700
+  // Tier 2:  6000-8000   Tier 7:  2500-3000   Tier 12: 1300-1500
+  // Tier 3:  5000-6000   Tier 8:  2200-2500   Tier 13: 1100-1300
+  // Tier 4:  4000-5000   Tier 9:  1900-2200   Tier 14: 1000-1100
+  // Tier 5:  3500-4000   Tier 10: 1700-1900   Tier 15: 0-1000
   players.forEach((p) => {
     const sv = p.scaledValue;
-    p.tier = sv >= 88 ? 1 : sv >= 78 ? 2 : sv >= 69 ? 3 : sv >= 59 ? 4 :
-             sv >= 49 ? 5 : sv >= 39 ? 6 : sv >= 29 ? 7 : sv >= 22 ? 8 :
-             sv >= 16 ? 9 : sv >= 11 ? 10 : sv >= 7 ? 11 :
-             sv >= 4 ? 12 : sv >= 2 ? 13 : sv >= 1 ? 14 : 15;
+    p.tier = sv >= 8000 ? 1 : sv >= 6000 ? 2 : sv >= 5000 ? 3 : sv >= 4000 ? 4 :
+             sv >= 3500 ? 5 : sv >= 3000 ? 6 : sv >= 2500 ? 7 : sv >= 2200 ? 8 :
+             sv >= 1900 ? 9 : sv >= 1700 ? 10 : sv >= 1500 ? 11 : sv >= 1300 ? 12 :
+             sv >= 1100 ? 13 : sv >= 1000 ? 14 : 15;
   });
 
   return players;
