@@ -67,7 +67,7 @@ export function DraftRoom({
   });
   const [showSetup, setShowSetup] = useState(teams.length === 0);
   const [showThresholdConfig, setShowThresholdConfig] = useState(false);
-  const [collapsed, setCollapsed] = useState(false); // default show starters only
+  const [collapsed, setCollapsed] = useState(true); // default collapsed (starters only)
   const [thresholds, setThresholds] = useState<{ bargain: number; overpay: number }>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("auction-calc-thresholds");
@@ -586,7 +586,7 @@ export function DraftRoom({
                     <span className="text-sm font-mono tabular-nums font-semibold">
                       {formatCurrency(p.auctionValue)}
                     </span>
-                    <span className="px-2.5 py-1 rounded-md bg-primary text-primary-foreground text-xs font-semibold cursor-pointer hover:bg-primary/90 transition-colors" onClick={() => openBidModal(p.id)}>
+                    <span className="px-2.5 py-1 rounded-md bg-primary text-primary-foreground text-xs font-semibold cursor-pointer hover:bg-primary/90 transition-colors border border-primary/40" onClick={() => openBidModal(p.id)}>
                       Bid
                     </span>
                   </div>
