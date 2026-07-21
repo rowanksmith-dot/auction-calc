@@ -564,14 +564,17 @@ export function DraftRoom({
                 <button
                   key={p.id}
                   onClick={() => openBidModal(p.id)}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-muted transition-colors text-left group"
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-muted transition-colors text-left"
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <span className="text-xs text-muted-foreground font-mono w-5 text-right shrink-0">
-                      {p.overallRank}
-                    </span>
-                    <span className={cn("text-[10px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0", pc.bg, pc.text)}>
+                    <span className={cn("text-[10px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0 text-center min-w-[26px]", pc.bg, pc.text)}>
                       {p.position}
+                    </span>
+                    <span className="text-[11px] font-mono tabular-nums text-muted-foreground shrink-0 w-6 text-right">
+                      {p.positionRank}
+                    </span>
+                    <span className="text-xs font-mono tabular-nums text-muted-foreground w-5 text-right shrink-0">
+                      {p.overallRank}
                     </span>
                     <span className="text-sm font-medium truncate">
                       {p.name}
@@ -580,11 +583,11 @@ export function DraftRoom({
                       {p.team}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0 pl-2">
                     <span className="text-sm font-mono tabular-nums font-semibold">
                       {formatCurrency(p.auctionValue)}
                     </span>
-                    <span className="px-2.5 py-1 rounded-md bg-primary/10 text-primary text-xs font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="px-2.5 py-1 rounded-md bg-primary/15 text-primary text-xs font-semibold border border-primary/20">
                       Bid
                     </span>
                   </div>
