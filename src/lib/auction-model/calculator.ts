@@ -189,8 +189,11 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
   }
 
   // Add undrafted players — display $1 but $0 toward budget
-  const undraftedAsValues: PlayerWithValue[] = undrafted
+  const undraftedSorted = [...undrafted]
     .filter((p) => !result.players.find((rp) => rp.id === p.id))
+    .sort((a, b) => getScaledVal(b) - getScaledVal(a));
+
+  const undraftedAsValues: PlayerWithValue[] = undraftedSorted
     .map((p, i) => ({
       ...p,
       scaledValue: getScaledVal(p),
@@ -429,8 +432,9 @@ function assignRanksAndTiers(players: ScoredPlayer[]): PlayerWithValue[] {
     group.forEach((p, i) => { p.positionRank = i + 1; });
   }
 
-  // Overall ranks
-  players.forEach((p, i) => { p.overallRank = i + 1; });
+  // Overall ranks — sort by auction value (TEP-affected) then assign
+  const byValue = [...players].sort((a, b) => b.auctionValue - a.auctionValue);
+  byValue.forEach((p, i) => { p.overallRank = i + 1; });
 
   // Tiers based on value
   return assignTiers(players);
