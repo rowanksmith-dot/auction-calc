@@ -9,7 +9,7 @@ import {
   Upload,
   Edit3,
 } from "lucide-react";
-import { cn, formatCurrency, valueIndicator, positionColor } from "@/lib/utils";
+import { cn, formatCurrency, valueIndicator } from "@/lib/utils";
 import type { PlayerWithValue, LeagueSettings, RosterSlotType } from "@/lib/types";
 import { validateTeamName } from "@/lib/validation/settings";
 
@@ -27,6 +27,13 @@ interface DraftRoomProps {
 }
 
 const DEFAULT_THRESHOLDS = { bargain: 0.85, overpay: 1.15 };
+
+const POS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  QB: { bg: "bg-blue-500/15 dark:bg-blue-500/20", text: "text-blue-600 dark:text-blue-300", border: "border-blue-500/25 dark:border-blue-500/30" },
+  RB: { bg: "bg-green-500/15 dark:bg-green-500/20", text: "text-green-600 dark:text-green-300", border: "border-green-500/25 dark:border-green-500/30" },
+  WR: { bg: "bg-yellow-500/15 dark:bg-yellow-500/20", text: "text-yellow-600 dark:text-yellow-300", border: "border-yellow-500/25 dark:border-yellow-500/30" },
+  TE: { bg: "bg-orange-500/15 dark:bg-orange-500/20", text: "text-orange-600 dark:text-orange-300", border: "border-orange-500/25 dark:border-orange-500/30" },
+};
 
 export function DraftRoom({
   players,
@@ -292,7 +299,6 @@ export function DraftRoom({
       return sum + Math.max(0, slot.count - filled);
     }, 0);
     if (needed <= 0) return team.budget - team.spent;
-    // Reserve minBid for each unfilled slot
     return (team.budget - team.spent) - (needed - 1) * settings.minBid;
   }
 
@@ -338,44 +344,44 @@ export function DraftRoom({
       <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={() => setShowSetup(true)}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
         >
           Back to Setup
         </button>
         <button
           onClick={undoLast}
           disabled={draftActions.length === 0}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-40 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-40 transition-colors"
         >
-          <Undo2 size={14} />
-          Undo Last
+          <Undo2 size={12} />
+          Undo
         </button>
         <button
           onClick={resetDraft}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
         >
-          <RotateCcw size={14} />
+          <RotateCcw size={12} />
           Reset
         </button>
         <button
           onClick={exportState}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
         >
-          <Download size={14} />
+          <Download size={12} />
           Export
         </button>
         <button
           onClick={importState}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
         >
-          <Upload size={14} />
+          <Upload size={12} />
           Import
         </button>
         <button
           onClick={() => setShowThresholdConfig(!showThresholdConfig)}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
         >
-          <Edit3 size={14} />
+          <Edit3 size={12} />
           Thresholds
         </button>
         <div className="text-xs text-muted-foreground ml-auto">
@@ -385,9 +391,9 @@ export function DraftRoom({
 
       {/* Threshold config */}
       {showThresholdConfig && (
-        <div className="bg-card border border-border rounded-xl p-4">
-          <h3 className="text-sm font-semibold mb-3">Value Thresholds</h3>
-          <div className="flex gap-4">
+        <div className="bg-card border border-border rounded-xl p-3">
+          <h3 className="text-xs font-semibold mb-2">Value Thresholds</h3>
+          <div className="flex gap-3">
             <div className="flex-1">
               <label className="block text-xs font-medium mb-1">Bargain (below)</label>
               <input
@@ -399,11 +405,8 @@ export function DraftRoom({
                 onChange={(e) =>
                   setThresholds({ ...thresholds, bargain: parseFloat(e.target.value) || 0.85 })
                 }
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                Win price &lt; {Math.round(thresholds.bargain * 100)}% of modeled value
-              </p>
             </div>
             <div className="flex-1">
               <label className="block text-xs font-medium mb-1">Overpay (above)</label>
@@ -416,196 +419,175 @@ export function DraftRoom({
                 onChange={(e) =>
                   setThresholds({ ...thresholds, overpay: parseFloat(e.target.value) || 1.15 })
                 }
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                Win price &gt; {Math.round(thresholds.overpay * 100)}% of modeled value
-              </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Team selector */}
-      <div className="flex flex-wrap gap-2">
-        {teams.map((team, i) => (
-          <button
-            key={i}
-            onClick={() => setSelectedTeam(i)}
-            className={cn(
-              "flex flex-col px-3 py-2 rounded-lg border text-left transition-colors min-w-[130px]",
-              selectedTeam === i
-                ? "border-primary bg-primary/10 ring-2 ring-primary/30 shadow-sm font-semibold"
-                : "border-border hover:border-primary/50",
-            )}
-          >
-            <span className={cn("text-xs truncate", selectedTeam === i && "font-bold")}>{team.name}</span>
-            <span className={cn("text-lg tabular-nums", selectedTeam === i ? "font-extrabold" : "font-bold")}>
-              {formatCurrency(team.budget - team.spent)}
-            </span>
-            <span className={cn("text-xs text-muted-foreground", selectedTeam === i && "font-semibold")}>
-              {team.players.length} players
-            </span>
-          </button>
-        ))}
+      {/* Team cards row */}
+      <div className="flex gap-2 overflow-x-auto pb-2">
+        {teams.map((team, i) => {
+          const isSelected = selectedTeam === i;
+          const rem = team.budget - team.spent;
+          return (
+            <button
+              key={i}
+              onClick={() => setSelectedTeam(i)}
+              className={cn(
+                "flex flex-col rounded-xl border text-left transition-all shrink-0",
+                "w-[170px]",
+                isSelected
+                  ? "border-primary bg-primary/5 ring-2 ring-primary/30 shadow-sm"
+                  : "border-border hover:border-primary/50 bg-card",
+              )}
+            >
+              {/* Team header */}
+              <div className="px-3 pt-2.5 pb-2 border-b border-border/50">
+                <div className={cn("text-sm truncate", isSelected && "font-bold")}>
+                  {team.name}
+                </div>
+                <div className={cn("text-lg tabular-nums mt-0.5", isSelected ? "font-extrabold" : "font-bold")}>
+                  {formatCurrency(rem)}
+                </div>
+              </div>
+
+              {/* Players list */}
+              <div className="p-2 space-y-1 min-h-[60px]">
+                {team.players.length === 0 && (
+                  <div className="text-[10px] text-muted-foreground text-center py-2 italic">
+                    empty
+                  </div>
+                )}
+                {team.players.map((p, idx) => {
+                  const pc = POS_COLORS[p.position] ?? POS_COLORS.WR;
+                  const indicator = valueIndicator(
+                    p.winningBid ?? 0,
+                    p.auctionValue,
+                    thresholds.bargain,
+                    thresholds.overpay,
+                  );
+                  return (
+                    <div
+                      key={p.id}
+                      className={cn(
+                        "flex items-center justify-between px-2 py-1 rounded-md text-xs border",
+                        pc.bg,
+                        pc.border,
+                      )}
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className={cn("text-[10px] font-bold uppercase shrink-0", pc.text)}>
+                          {p.position}
+                        </span>
+                        <span className="truncate text-foreground text-[11px]">
+                          {p.name.split(" ").pop()}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className={cn("font-mono tabular-nums text-[11px]", indicator.color)}>
+                          {formatCurrency(p.winningBid ?? 0)}
+                        </span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); editWinningBid(i, idx); }}
+                          className="opacity-0 hover:opacity-100 transition-opacity text-muted-foreground"
+                          title="Edit bid"
+                        >
+                          <Edit3 size={9} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Remaining slots */}
+              <div className="px-3 pb-2.5 border-t border-border/50 pt-1.5">
+                <div className="flex flex-wrap gap-1">
+                  {settings.rosterSlots
+                    .filter((s) => s.type !== "BENCH")
+                    .map((slot) => {
+                      const filled = getTeamFilledCount(team, slot.type);
+                      const needed = slot.count - filled;
+                      return (
+                        <span
+                          key={slot.type}
+                          className={cn(
+                            "text-[10px] font-mono",
+                            needed > 0 ? "text-muted-foreground" : "text-green-500 dark:text-green-400",
+                          )}
+                        >
+                          {slot.type === "SUPERFLEX" ? "SF" : slot.type}
+                          {filled}/{slot.count}
+                        </span>
+                      );
+                    })}
+                </div>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
-      {/* Two-column layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Player list */}
-        <div className="lg:col-span-2">
-          <div className="bg-card border border-border rounded-xl p-4">
-            <h3 className="text-sm font-semibold mb-3">
-              Available Players — Drafting for{" "}
-              <span className="text-primary">{teams[selectedTeam]?.name}</span>
-              <span className="text-xs text-muted-foreground ml-2 font-normal">
-                (Max bid: {formatCurrency(getMaxBid(teams[selectedTeam] ?? { budget: 0, spent: 0, players: [], name: "" }))})
-              </span>
-            </h3>
-            <div className="space-y-1 max-h-[500px] overflow-y-auto">
-              {players
-                .filter((p) => !p.drafted)
-                .sort((a, b) => b.auctionValue - a.auctionValue)
-                .map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => draftPlayer(p.id)}
-                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-muted transition-colors text-left group"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-xs text-muted-foreground font-mono w-6 text-right">
-                        {p.overallRank}
-                      </span>
-                      <span className="text-sm font-medium truncate">
-                        {p.name}
-                      </span>
-                      <span
-                        className={cn(
-                          "text-xs font-medium shrink-0",
-                          positionColor(p.position),
-                        )}
-                      >
-                        {p.position}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-sm font-mono tabular-nums font-semibold mr-1">
-                        {formatCurrency(p.auctionValue)}
-                      </span>
-                      <span className="px-3 py-1 rounded-md bg-primary/10 text-primary text-xs font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
-                        Bid
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              {players.filter((p) => !p.drafted).length === 0 && (
-                <p className="text-center text-muted-foreground py-8">
-                  All players have been drafted!
-                </p>
-              )}
-            </div>
+      {/* Available players */}
+      <div className="bg-card border border-border rounded-xl">
+        <div className="px-4 py-3 flex items-center justify-between border-b border-border/50">
+          <h3 className="text-sm font-semibold">
+            Available Players
+          </h3>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span>
+              Drafting for{" "}
+              <span className="text-primary font-semibold">{teams[selectedTeam]?.name}</span>
+            </span>
+            <span>
+              Max bid: {formatCurrency(getMaxBid(teams[selectedTeam] ?? { budget: 0, spent: 0, players: [], name: "" }))}
+            </span>
           </div>
         </div>
-
-        {/* Team roster */}
-        <div>
-          <div className="bg-card border border-border rounded-xl p-4">
-            <h3 className="text-sm font-semibold mb-2">
-              {teams[selectedTeam]?.name} Roster
-            </h3>
-
-            {/* Roster spots */}
-            {settings.rosterSlots
-              .filter((slot) => slot.type !== "BENCH")
-              .map((slot) => {
-                const filled = getTeamFilledCount(
-                  teams[selectedTeam] ?? { players: [], budget: 0, spent: 0, name: "" },
-                  slot.type,
-                );
-                return (
-                  <div key={slot.type} className="flex items-center justify-between text-xs py-1">
-                    <span className="text-muted-foreground">{slot.type}</span>
-                    <span className="tabular-nums">
-                      {filled}/{slot.count}
+        <div className="p-2 max-h-[340px] overflow-y-auto">
+          {players
+            .filter((p) => !p.drafted)
+            .sort((a, b) => b.auctionValue - a.auctionValue)
+            .map((p) => {
+              const pc = POS_COLORS[p.position] ?? POS_COLORS.WR;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => draftPlayer(p.id)}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-muted transition-colors text-left group"
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <span className="text-xs text-muted-foreground font-mono w-5 text-right shrink-0">
+                      {p.overallRank}
+                    </span>
+                    <span className={cn("text-[10px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0", pc.bg, pc.text)}>
+                      {p.position}
+                    </span>
+                    <span className="text-sm font-medium truncate">
+                      {p.name}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      {p.team}
                     </span>
                   </div>
-                );
-              })}
-
-            <div className="mt-3 space-y-2">
-              {teams[selectedTeam]?.players.map((p, idx) => {
-                const indicator = valueIndicator(
-                  p.winningBid ?? 0,
-                  p.auctionValue,
-                  thresholds.bargain,
-                  thresholds.overpay,
-                );
-                return (
-                  <div
-                    key={p.id}
-                    className="flex items-center justify-between px-3 py-2 rounded-lg bg-background group"
-                  >
-                    <div>
-                      <span className="text-sm font-medium">{p.name}</span>
-                      <span
-                        className={cn("text-xs ml-2", positionColor(p.position))}
-                      >
-                        {p.position}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="text-right">
-                        <div className="text-sm font-mono tabular-nums">
-                          {formatCurrency(p.winningBid ?? 0)}
-                        </div>
-                        {indicator.label && (
-                          <div className={cn("text-xs", indicator.color)}>
-                            {indicator.label}
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => editWinningBid(selectedTeam, idx)}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
-                        title="Edit bid"
-                      >
-                        <Edit3 size={12} />
-                      </button>
-                    </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-sm font-mono tabular-nums font-semibold">
+                      {formatCurrency(p.auctionValue)}
+                    </span>
+                    <span className="px-2.5 py-1 rounded-md bg-primary/10 text-primary text-xs font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
+                      Bid
+                    </span>
                   </div>
-                );
-              })}
-              {(teams[selectedTeam]?.players.length ?? 0) === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No players yet
-                </p>
-              )}
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-border space-y-1">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Spent:</span>
-                <span className="font-mono">
-                  {formatCurrency(teams[selectedTeam]?.spent ?? 0)}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Remaining:</span>
-                <span className="font-mono font-semibold">
-                  {formatCurrency(
-                    (teams[selectedTeam]?.budget ?? 0) -
-                      (teams[selectedTeam]?.spent ?? 0),
-                  )}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Max bid:</span>
-                <span className="font-mono">
-                  {formatCurrency(getMaxBid(teams[selectedTeam] ?? { name: "", budget: 0, spent: 0, players: [] }))}
-                </span>
-              </div>
-            </div>
-          </div>
+                </button>
+              );
+            })}
+          {players.filter((p) => !p.drafted).length === 0 && (
+            <p className="text-center text-muted-foreground py-8">
+              All players have been drafted!
+            </p>
+          )}
         </div>
       </div>
 
