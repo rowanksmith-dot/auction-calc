@@ -205,7 +205,11 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
       auctionValue: 1,
       positionRank: undraftedPosRanks[p.id] ?? 0,
       overallRank: result.players.length + i + 1,
-      tier: 12,
+      tier: getScaledVal(p) >= 8000 ? 1 : getScaledVal(p) >= 6000 ? 2 : getScaledVal(p) >= 5000 ? 3 :
+           getScaledVal(p) >= 4000 ? 4 : getScaledVal(p) >= 3500 ? 5 : getScaledVal(p) >= 3000 ? 6 :
+           getScaledVal(p) >= 2500 ? 7 : getScaledVal(p) >= 2200 ? 8 : getScaledVal(p) >= 1900 ? 9 :
+           getScaledVal(p) >= 1700 ? 10 : getScaledVal(p) >= 1500 ? 11 : getScaledVal(p) >= 1300 ? 12 :
+           getScaledVal(p) >= 1100 ? 13 : getScaledVal(p) >= 1000 ? 14 : 15,
       drafted: false,
       winningBid: null,
       draftedBy: null,
@@ -448,21 +452,31 @@ function assignRanksAndTiers(players: ScoredPlayer[]): PlayerWithValue[] {
 function assignTiers(players: ScoredPlayer[]): PlayerWithValue[] {
   if (players.length === 0) return [];
 
-  // Tier 1: Top 7 players by source value (the true elite tier)
-  // Tier 2+ : Everyone else split into 11 equal-sized buckets
-  const tier1Count = 7;
-  const restTiers = 11;
-  const restPlayers = players.slice(tier1Count);
-  const bucketSize = Math.max(1, Math.floor(restPlayers.length / restTiers));
-  const totalBuckets = Math.min(restTiers, Math.ceil(restPlayers.length / bucketSize));
+  // Value-based tiers using TEP-affected scaledValue (not rank-based).
+  // These thresholds are designed for FantasyCalc's market value scale
+  // (roughly 0-10,000) and automatically boost TEs when TEP is enabled.
+  const tierThresholds: Array<{ min: number; max: number; tier: number }> = [
+    { min: 8000, max: Infinity, tier: 1 },
+    { min: 6000, max: 8000, tier: 2 },
+    { min: 5000, max: 6000, tier: 3 },
+    { min: 4000, max: 5000, tier: 4 },
+    { min: 3500, max: 4000, tier: 5 },
+    { min: 3000, max: 3500, tier: 6 },
+    { min: 2500, max: 3000, tier: 7 },
+    { min: 2200, max: 2500, tier: 8 },
+    { min: 1900, max: 2200, tier: 9 },
+    { min: 1700, max: 1900, tier: 10 },
+    { min: 1500, max: 1700, tier: 11 },
+    { min: 1300, max: 1500, tier: 12 },
+    { min: 1100, max: 1300, tier: 13 },
+    { min: 1000, max: 1100, tier: 14 },
+    { min: 0, max: 1000, tier: 15 },
+  ];
 
-  players.forEach((p, idx) => {
-    if (idx < tier1Count) {
-      p.tier = 1;
-    } else {
-      const remIdx = idx - tier1Count;
-      p.tier = Math.min(Math.floor(remIdx / bucketSize) + 2, 12);
-    }
+  players.forEach((p) => {
+    const sv = p.scaledValue;
+    const match = tierThresholds.find((t) => sv >= t.min && sv < t.max);
+    p.tier = match ? match.tier : 15;
   });
 
   return players;
