@@ -13,12 +13,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{
             __html: `
-              document.documentElement.classList.add('dark');
+              var saved = localStorage.getItem('auction-calc-theme');
+              if (saved && saved !== 'dark') {
+                document.documentElement.className = saved;
+              }
             `,
           }}
         />

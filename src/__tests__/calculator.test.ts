@@ -334,9 +334,10 @@ describe("Phase 6: Auction Model Tests", () => {
     const result1 = calculateAuctionValues({ players: BIG_POOL, settings: { ...DEFAULT_SETTINGS, budget: 1000 } });
     const result2 = calculateAuctionValues({ players: BIG_POOL, settings: { ...DEFAULT_SETTINGS, budget: 2000 } });
 
-    // Same id set among the drafted players
-    const drafted1 = new Set(result1.players.filter(p => p.auctionValue > 1).map(p => p.id));
-    const drafted2 = new Set(result2.players.filter(p => p.auctionValue > 1).map(p => p.id));
+    // The drafted player set is determined by roster slots, not budget.
+    // Both should produce the exact same group of drafted players.
+    const drafted1 = new Set(result1.players.filter(p => p.drafted).map(p => p.id));
+    const drafted2 = new Set(result2.players.filter(p => p.drafted).map(p => p.id));
     expect(drafted1.size).toBe(drafted2.size);
     for (const id of drafted1) {
       expect(drafted2.has(id)).toBe(true);
