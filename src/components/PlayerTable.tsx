@@ -35,6 +35,7 @@ type SortKey =
   | "positionRank"
   | "auctionValue"
   | "sourceValue"
+  | "scaledValue"
   | "tier"
   | "team"
   | "trend30";
@@ -110,6 +111,9 @@ export function PlayerTable({
           break;
         case "sourceValue":
           cmp = a.sourceValue - b.sourceValue;
+          break;
+        case "scaledValue":
+          cmp = a.scaledValue - b.scaledValue;
           break;
         case "tier":
           cmp = a.tier - b.tier;
@@ -382,7 +386,7 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
               <SortHeader label="Pos" sortKey="position" />
               <SortHeader label="Pos Rank" sortKey="positionRank" />
               <SortHeader label="Auction $" sortKey="auctionValue" />
-              <SortHeader label="Value" sortKey="sourceValue" />
+              <SortHeader label="Value" sortKey="scaledValue" />
               <SortHeader label="Tier" sortKey="tier" />
               <SortHeader label="30-Day" sortKey="trend30" />
               {!compact && <th className="px-3 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</th>}
