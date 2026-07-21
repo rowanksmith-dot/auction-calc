@@ -468,9 +468,7 @@ export function DraftRoom({
 
               {/* Roster slots */}
               <div className="p-1.5 space-y-0.5 min-h-[60px]">
-                {settings.rosterSlots
-                  .filter((s) => s.type !== "BENCH")
-                  .map((slot) => {
+                {settings.rosterSlots.map((slot) => {
                     // Find players assigned to this slot position
                     const posPlayers = team.players.filter((p) => {
                       if (slot.type === "FLEX")
@@ -545,29 +543,6 @@ export function DraftRoom({
                   })}
               </div>
 
-              {/* Remaining slots */}
-              <div className="px-3 pb-2.5 border-t border-border/50 pt-1.5">
-                <div className="flex flex-wrap gap-1">
-                  {settings.rosterSlots
-                    .filter((s) => s.type !== "BENCH")
-                    .map((slot) => {
-                      const filled = getTeamFilledCount(team, slot.type);
-                      const needed = slot.count - filled;
-                      return (
-                        <span
-                          key={slot.type}
-                          className={cn(
-                            "text-[10px] font-mono",
-                            needed > 0 ? "text-muted-foreground" : "text-green-500 dark:text-green-400",
-                          )}
-                        >
-                          {slot.type === "SUPERFLEX" ? "SF" : slot.type}
-                          {filled}/{slot.count}
-                        </span>
-                      );
-                    })}
-                </div>
-              </div>
             </button>
           );
         })}
