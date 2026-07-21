@@ -245,9 +245,7 @@ export default function HowItWorksPage() {
               ⚠️ Important Disclaimer
             </p>
             <p className="text-amber-700 dark:text-amber-300 mt-1">
-              These are <strong>modeled fair values</strong> based on trade
-              market data, not guaranteed auction prices. Actual auction values
-              vary based on your league&rsquo;s specific dynamics, draft
+              These are <strong>modeled fair values </strong>based on trade market data, not guaranteed auction prices. Actual auction values vary based on your league&rsquo;s specific dynamics, draft
               strategy, and nominating order. This is an entertainment and
               informational tool — always trust your own draft preparation.
             </p>

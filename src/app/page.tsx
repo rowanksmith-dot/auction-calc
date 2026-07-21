@@ -622,8 +622,7 @@ export default function Home() {
                     ⚠️ Important
                   </p>
                   <p>
-                    These are <strong>modeled fair values</strong> based on
-                    FantasyCalc trade market data. Actual auction prices vary.
+                    These are <strong>modeled fair values </strong>based on FantasyCalc trade market data. Actual auction prices vary.
                     This is an entertainment and informational tool.
                   </p>
                 </div>
