@@ -432,10 +432,10 @@ export default function Home() {
             <button
               onClick={() => setViewMode("list")}
               className={cn(
-                "px-3 py-2 text-sm flex items-center gap-1.5 transition-colors",
+                "px-3 py-2 text-sm flex items-center gap-1.5 transition-all duration-150",
                 viewMode === "list"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-background hover:bg-secondary",
+                  ? "bg-primary text-primary-foreground ring-2 ring-primary/30 shadow-sm"
+                  : "bg-background text-secondary-foreground hover:bg-secondary/80 hover:ring-1 hover:ring-border",
               )}
             >
               <Table2 size={16} />
@@ -444,10 +444,10 @@ export default function Home() {
             <button
               onClick={() => setViewMode("board")}
               className={cn(
-                "px-3 py-2 text-sm flex items-center gap-1.5 transition-colors",
+                "px-3 py-2 text-sm flex items-center gap-1.5 transition-all duration-150",
                 viewMode === "board"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-background hover:bg-secondary",
+                  ? "bg-primary text-primary-foreground ring-2 ring-primary/30 shadow-sm"
+                  : "bg-background text-secondary-foreground hover:bg-secondary/80 hover:ring-1 hover:ring-border",
               )}
             >
               <LayoutGrid size={16} />
@@ -456,10 +456,10 @@ export default function Home() {
             <button
               onClick={() => setViewMode("draft")}
               className={cn(
-                "px-3 py-2 text-sm flex items-center gap-1.5 transition-colors",
+                "px-3 py-2 text-sm flex items-center gap-1.5 transition-all duration-150",
                 viewMode === "draft"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-background hover:bg-secondary",
+                  ? "bg-primary text-primary-foreground ring-2 ring-primary/30 shadow-sm"
+                  : "bg-background text-secondary-foreground hover:bg-secondary/80 hover:ring-1 hover:ring-border",
               )}
             >
               <Users size={16} />
