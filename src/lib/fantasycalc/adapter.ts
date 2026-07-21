@@ -15,6 +15,29 @@
 import type { LeagueSettings, PlayerWithValue } from "../types";
 import fallbackValues from "@/data/fallback-values.json";
 
+// ── Manual birthdate overrides ──
+// FantasyCalc may be missing age for certain players. If a player's
+// birthdate is known, set it here and their age will be computed.
+const BIRTHDAYS: Record<number, { month: number; day: number; year: number }> = {
+  13555: { month: 4, day: 29, year: 2004 }, // Jam Miller (RB) — April 29, 2004
+};
+
+function computeAge(b: { month: number; day: number; year: number }): number {
+  const now = new Date();
+  const birth = new Date(b.year, b.month - 1, b.day);
+  let age = now.getFullYear() - birth.getFullYear();
+  const monthDiff = now.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birth.getDate())) {
+    age--;
+  }
+  const thisYearBday = new Date(now.getFullYear(), birth.getMonth(), birth.getDate());
+  const nextYearBday = new Date(now.getFullYear() + 1, birth.getMonth(), birth.getDate());
+  const daysSince = (now.getTime() - thisYearBday.getTime()) / (1000 * 60 * 60 * 24);
+  const daysInYear = (nextYearBday.getTime() - thisYearBday.getTime()) / (1000 * 60 * 60 * 24);
+  const fraction = Math.max(0, Math.min(1, daysSince / daysInYear));
+  return Math.round((age + fraction) * 10) / 10;
+}
+
 /** Raw FantasyCalc value record from the API response. */
 export interface FantasyCalcValueRecord {
   playerId: number;
@@ -150,7 +173,7 @@ function normalizeApiResponse(data: any): {
         name: p.name,
         position: p.position as "QB" | "RB" | "WR" | "TE",
         maybeTeam: p.maybeTeam ?? null,
-        maybeAge: p.maybeAge ?? 25,
+        maybeAge: BIRTHDAYS[p.id] !== undefined ? computeAge(BIRTHDAYS[p.id]) : (p.maybeAge ?? 25),
       }));
   }
 
@@ -198,7 +221,7 @@ export function mergePlayersWithValues(
         name: p.name,
         team: p.maybeTeam ?? "FA",
         position: p.position,
-        age: p.maybeAge ?? 25,
+        age: BIRTHDAYS[p.id] ? computeAge(BIRTHDAYS[p.id]) : (p.maybeAge ?? 25),
         sourceValue: v?.value ?? 0,
         trend30: v?.trend30Day ?? null,
       };
