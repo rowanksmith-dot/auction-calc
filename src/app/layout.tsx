@@ -18,11 +18,7 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: `
-              try {
-                let theme = localStorage.getItem('auction-calc-theme');
-                if (!theme) theme = 'dark';
-                document.documentElement.classList.toggle('dark', theme === 'dark');
-              } catch(e) {}
+              document.documentElement.classList.add('dark');
             `,
           }}
         />

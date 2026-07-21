@@ -19,7 +19,6 @@ import type { LeagueSettings, PlayerWithValue } from "@/lib/types";
 import { DEFAULT_SETTINGS } from "@/lib/types";
 import { calculateAuctionValues } from "@/lib/auction-model/calculator";
 import { getFantasyCalcData, clearDataCache } from "@/lib/fantasycalc/adapter";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { PlayerTable } from "@/components/PlayerTable";
 import { DraftBoard } from "@/components/DraftBoard";
@@ -312,8 +311,6 @@ export default function Home() {
           >
             <Bug size={14} />
           </button>
-
-          <ThemeToggle />
 
           <a
             href="/how-it-works"

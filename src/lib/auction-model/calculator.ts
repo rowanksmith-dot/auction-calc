@@ -113,25 +113,42 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
   else if (settings.tePremium === "custom")
     tepScalar = 1 + settings.tePremiumCustom * 0.3;
 
-  // ── Step 6: Surplus and weights ──
+  // ── Step 6: Surplus, weights, and tier-compressed surplus ──
+  // Tier thresholds are proportional to the old static values (which assumed
+  // a ~10000 max) but dynamically rescaled to the actual data max. This way
+  // tiers work on any value scale (FantasyCalc ~0-100 or larger).
+  const maxSv = drafted.reduce(
+    (max, p) => Math.max(max, p.position === "TE" ? p.sourceValue * tepScalar : p.sourceValue),
+    0
+  );
+  // Old threshold ratios (relative to 10000) used as proportions
+  const tierCuts = [0.80, 0.60, 0.50, 0.40, 0.35, 0.30, 0.25, 0.22, 0.19, 0.17, 0.15, 0.13, 0.11, 0.10, 0];
+  function getTier(sv: number): number {
+    for (let i = 0; i < tierCuts.length; i++) {
+      if (sv >= maxSv * tierCuts[i]) return i + 1;
+    }
+    return 15;
+  }
+
   const scored: ScoredPlayer[] = drafted.map((p) => {
     const scaledValue = p.position === "TE" ? p.sourceValue * tepScalar : p.sourceValue;
     const repl = replacementValues[p.position] ?? 0;
     const surplus = Math.max(scaledValue - repl, 0);
-    // Compressed weight: a tiny surplus floor so low-surplus players
-    // get proportionally much less weight than high-surplus ones.
-    // A surplus of 0.5 now produces almost nothing; a surplus of 10+
-    // produces full weight. This is the key lever for controlling how
-    // expensive fringe players are.
-    const effectiveSurplus = surplus + 0.2;
+    const sv = Math.round(scaledValue * 100) / 100;
+    const tier = getTier(sv);
+    // Tier compressed surplus: lower tiers get their surplus reduced.
+    // Tier 1 keeps 100% of surplus. Tier 15 keeps ~15% of surplus.
+    const tierCompression = 1 - ((tier - 1) / 14) * 0.85;
+    const compressedSurplus = surplus * tierCompression;
+    const effectiveSurplus = compressedSurplus + 0.2;
     const weight = Math.pow(effectiveSurplus, settings.exponent) - Math.pow(0.2, settings.exponent);
     return {
       ...p,
-      scaledValue: Math.round(scaledValue * 100) / 100,
+      scaledValue: sv,
       auctionValue: 0,
       positionRank: 0,
       overallRank: 0,
-      tier: 0,
+      tier,
       drafted: true,
       winningBid: null,
       draftedBy: null,
@@ -468,36 +485,14 @@ function assignRanksAndTiers(players: ScoredPlayer[]): PlayerWithValue[] {
 function assignTiers(players: ScoredPlayer[]): PlayerWithValue[] {
   if (players.length === 0) return [];
 
-  // Dynamic value-based tiers that adapt to any value scale.
-  // The max scaledValue determines the ceiling; 15 tiers split the range
-  // from 0 to max, with tighter spacing at the bottom so late-round
-  // players differentiate.
-  const maxVal = players.reduce((m, p) => Math.max(m, p.scaledValue), 0);
-  // Thresholds are tighter at the bottom to give more granularity
-  // to fringe players. The last threshold (tier 15) catches everyone below
-  // 2% of max value — basically minimum bid players.
-  const thresholds = [
-    { pct: 0.90, tier: 1 },
-    { pct: 0.80, tier: 2 },
-    { pct: 0.70, tier: 3 },
-    { pct: 0.60, tier: 4 },
-    { pct: 0.50, tier: 5 },
-    { pct: 0.40, tier: 6 },
-    { pct: 0.30, tier: 7 },
-    { pct: 0.22, tier: 8 },
-    { pct: 0.16, tier: 9 },
-    { pct: 0.11, tier: 10 },
-    { pct: 0.07, tier: 11 },
-    { pct: 0.04, tier: 12 },
-    { pct: 0.02, tier: 13 },
-    { pct: 0.01, tier: 14 },
-    { pct: 0,    tier: 15 },
-  ];
-
+  // Static tier thresholds matching the compressed system in Step 6.
+  // Scaled for FantasyCalc's 0-100 value range.
   players.forEach((p) => {
-    const ratio = maxVal > 0 ? p.scaledValue / maxVal : 0;
-    const match = thresholds.find((t) => ratio >= t.pct);
-    p.tier = match ? match.tier : 15;
+    const sv = p.scaledValue;
+    p.tier = sv >= 88 ? 1 : sv >= 78 ? 2 : sv >= 69 ? 3 : sv >= 59 ? 4 :
+             sv >= 49 ? 5 : sv >= 39 ? 6 : sv >= 29 ? 7 : sv >= 22 ? 8 :
+             sv >= 16 ? 9 : sv >= 11 ? 10 : sv >= 7 ? 11 :
+             sv >= 4 ? 12 : sv >= 2 ? 13 : sv >= 1 ? 14 : 15;
   });
 
   return players;
