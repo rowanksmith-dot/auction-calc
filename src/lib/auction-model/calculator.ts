@@ -4,7 +4,7 @@
  * Converts FantasyCalc market values into auction-dollar values using
  * a replacement-based model with proportional allocation.
  *
- * Methodology (9-step):
+ * Methodology (10-step):
  * 1. Total league budget = teams × budgetPerTeam
  * 2. Drafted player count = teams × rosterSize
  * 3. Reserved minimum budget = draftedCount × minBid
@@ -12,8 +12,9 @@
  * 5. Construct legal league-wide player pool (max-value slot assignment)
  * 6. Replacement level = value of the best UNDRAFTED player at each position
  * 7. Surplus = max(playerValue - replacement[pos], 0), weight = (surplus+0.5)^exponent - 0.5^exponent
- * 8. Distribute discretionary budget proportional to weight
- * 9. Round using largest-remainder method
+ * 8. Compress weight by position-relative percentile: fringe players lose weight smoothly
+ * 9. Distribute discretionary budget proportional to compressed weight
+ * 10. Round using largest-remainder method
  *
  * IMPORTANT: Replacement level uses the best undrafted player (marginal roster
  * boundary), NOT the worst starter. This gives a market-correct replacement
@@ -117,11 +118,13 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
     const scaledValue = p.position === "TE" ? p.sourceValue * tepScalar : p.sourceValue;
     const repl = replacementValues[p.position] ?? 0;
     const surplus = Math.max(scaledValue - repl, 0);
-    // Use a compressed weight: smooth the transition from replacement-level
-    // to elite by applying a softer exponent floor. This prevents fringe players
-    // from getting significant budget share while keeping a gradual drop-off.
-    const effectiveSurplus = surplus + 0.5; // smooth floor so tiny surpluses don't go to zero
-    const weight = Math.pow(effectiveSurplus, settings.exponent) - Math.pow(0.5, settings.exponent);
+    // Compressed weight: a tiny surplus floor so low-surplus players
+    // get proportionally much less weight than high-surplus ones.
+    // A surplus of 0.5 now produces almost nothing; a surplus of 10+
+    // produces full weight. This is the key lever for controlling how
+    // expensive fringe players are.
+    const effectiveSurplus = surplus + 0.2;
+    const weight = Math.pow(effectiveSurplus, settings.exponent) - Math.pow(0.2, settings.exponent);
     return {
       ...p,
       scaledValue: Math.round(scaledValue * 100) / 100,
@@ -138,9 +141,19 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
     };
   });
 
+  // ── Step 7: Surplus-only weight compression ──
+  // A stronger surplus floor means low-surplus players get proportionally
+  // much less weight. No tier-based adjustments needed — the surplus math
+  // naturally handles the gradual drop-off.
+  for (const p of scored) {
+    if (p.surplus <= 0) {
+      p.weight = 0;
+    }
+  }
+
   const totalWeight = scored.reduce((sum, p) => sum + p.weight, 0);
 
-  // ── Step 7: Fallback if all surpluses zero ──
+  // ── Step 8: Fallback if all surpluses zero ──
   if (totalWeight === 0) {
     const totalSource = sorted.reduce((s, p) => {
       const sv = p.position === "TE" ? p.sourceValue * tepScalar : p.sourceValue;
@@ -455,30 +468,35 @@ function assignRanksAndTiers(players: ScoredPlayer[]): PlayerWithValue[] {
 function assignTiers(players: ScoredPlayer[]): PlayerWithValue[] {
   if (players.length === 0) return [];
 
-  // Value-based tiers using TEP-affected scaledValue (not rank-based).
-  // These thresholds are designed for FantasyCalc's market value scale
-  // (roughly 0-10,000) and automatically boost TEs when TEP is enabled.
-  const tierThresholds: Array<{ min: number; max: number; tier: number }> = [
-    { min: 8000, max: Infinity, tier: 1 },
-    { min: 6000, max: 8000, tier: 2 },
-    { min: 5000, max: 6000, tier: 3 },
-    { min: 4000, max: 5000, tier: 4 },
-    { min: 3500, max: 4000, tier: 5 },
-    { min: 3000, max: 3500, tier: 6 },
-    { min: 2500, max: 3000, tier: 7 },
-    { min: 2200, max: 2500, tier: 8 },
-    { min: 1900, max: 2200, tier: 9 },
-    { min: 1700, max: 1900, tier: 10 },
-    { min: 1500, max: 1700, tier: 11 },
-    { min: 1300, max: 1500, tier: 12 },
-    { min: 1100, max: 1300, tier: 13 },
-    { min: 1000, max: 1100, tier: 14 },
-    { min: 0, max: 1000, tier: 15 },
+  // Dynamic value-based tiers that adapt to any value scale.
+  // The max scaledValue determines the ceiling; 15 tiers split the range
+  // from 0 to max, with tighter spacing at the bottom so late-round
+  // players differentiate.
+  const maxVal = players.reduce((m, p) => Math.max(m, p.scaledValue), 0);
+  // Thresholds are tighter at the bottom to give more granularity
+  // to fringe players. The last threshold (tier 15) catches everyone below
+  // 2% of max value — basically minimum bid players.
+  const thresholds = [
+    { pct: 0.90, tier: 1 },
+    { pct: 0.80, tier: 2 },
+    { pct: 0.70, tier: 3 },
+    { pct: 0.60, tier: 4 },
+    { pct: 0.50, tier: 5 },
+    { pct: 0.40, tier: 6 },
+    { pct: 0.30, tier: 7 },
+    { pct: 0.22, tier: 8 },
+    { pct: 0.16, tier: 9 },
+    { pct: 0.11, tier: 10 },
+    { pct: 0.07, tier: 11 },
+    { pct: 0.04, tier: 12 },
+    { pct: 0.02, tier: 13 },
+    { pct: 0.01, tier: 14 },
+    { pct: 0,    tier: 15 },
   ];
 
   players.forEach((p) => {
-    const sv = p.scaledValue;
-    const match = tierThresholds.find((t) => sv >= t.min && sv < t.max);
+    const ratio = maxVal > 0 ? p.scaledValue / maxVal : 0;
+    const match = thresholds.find((t) => ratio >= t.pct);
     p.tier = match ? match.tier : 15;
   });
 
