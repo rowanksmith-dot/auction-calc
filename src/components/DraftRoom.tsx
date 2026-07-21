@@ -337,6 +337,12 @@ export function DraftRoom({
       {/* Actions bar */}
       <div className="flex flex-wrap items-center gap-2">
         <button
+          onClick={() => setShowSetup(true)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
+        >
+          Back to Setup
+        </button>
+        <button
           onClick={undoLast}
           disabled={draftActions.length === 0}
           className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-40 transition-colors"
@@ -429,15 +435,15 @@ export function DraftRoom({
             className={cn(
               "flex flex-col px-3 py-2 rounded-lg border text-left transition-colors min-w-[130px]",
               selectedTeam === i
-                ? "border-primary bg-primary/5"
+                ? "border-primary bg-primary/10 ring-2 ring-primary/30 shadow-sm font-semibold"
                 : "border-border hover:border-primary/50",
             )}
           >
-            <span className="text-xs font-medium truncate">{team.name}</span>
-            <span className="text-lg font-bold tabular-nums">
+            <span className={cn("text-xs truncate", selectedTeam === i && "font-bold")}>{team.name}</span>
+            <span className={cn("text-lg tabular-nums", selectedTeam === i ? "font-extrabold" : "font-bold")}>
               {formatCurrency(team.budget - team.spent)}
             </span>
-            <span className="text-xs text-muted-foreground">
+            <span className={cn("text-xs text-muted-foreground", selectedTeam === i && "font-semibold")}>
               {team.players.length} players
             </span>
           </button>
@@ -460,12 +466,11 @@ export function DraftRoom({
               {players
                 .filter((p) => !p.drafted)
                 .sort((a, b) => b.auctionValue - a.auctionValue)
-                .slice(0, 50)
                 .map((p) => (
                   <button
                     key={p.id}
                     onClick={() => draftPlayer(p.id)}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-muted transition-colors text-left group"
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-muted transition-colors text-left group"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-xs text-muted-foreground font-mono w-6 text-right">
@@ -483,11 +488,11 @@ export function DraftRoom({
                         {p.position}
                       </span>
                     </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span className="text-sm font-mono tabular-nums font-semibold">
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-sm font-mono tabular-nums font-semibold mr-1">
                         {formatCurrency(p.auctionValue)}
                       </span>
-                      <span className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span className="px-3 py-1 rounded-md bg-primary/10 text-primary text-xs font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
                         Bid
                       </span>
                     </div>
