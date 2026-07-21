@@ -421,19 +421,19 @@ function roundWithLargestRemainder(
 }
 
 function assignRanksAndTiers(players: ScoredPlayer[]): PlayerWithValue[] {
-  // Position ranks
+  // Position ranks — sort by scaled value (TEP-affected source value)
   const posGroups: Record<string, ScoredPlayer[]> = {};
   for (const p of players) {
     if (!posGroups[p.position]) posGroups[p.position] = [];
     posGroups[p.position].push(p);
   }
   for (const [, group] of Object.entries(posGroups)) {
-    group.sort((a, b) => b.auctionValue - a.auctionValue);
+    group.sort((a, b) => b.scaledValue - a.scaledValue);
     group.forEach((p, i) => { p.positionRank = i + 1; });
   }
 
-  // Overall ranks — sort by auction value (TEP-affected) then assign
-  const byValue = [...players].sort((a, b) => b.auctionValue - a.auctionValue);
+  // Overall ranks — sort by scaled value (TEP-affected source value)
+  const byValue = [...players].sort((a, b) => b.scaledValue - a.scaledValue);
   byValue.forEach((p, i) => { p.overallRank = i + 1; });
 
   // Tiers based on value

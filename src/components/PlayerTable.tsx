@@ -57,7 +57,7 @@ export function PlayerTable({
   const [posFilter, setPosFilter] = useState<string>("all");
   const [tierFilter, setTierFilter] = useState<number | null>(null);
   const [sort, setSort] = useState<SortState>({
-    key: "auctionValue",
+    key: "scaledValue",
     dir: "desc",
   });
   const [showDrafted, setShowDrafted] = useState(!hideDrafted);
