@@ -67,7 +67,7 @@ export function DraftRoom({
   });
   const [showSetup, setShowSetup] = useState(teams.length === 0);
   const [showThresholdConfig, setShowThresholdConfig] = useState(false);
-  const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
+  const [collapsed, setCollapsed] = useState(false); // default show starters only
   const [thresholds, setThresholds] = useState<{ bargain: number; overpay: number }>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("auction-calc-thresholds");
@@ -474,12 +474,12 @@ export function DraftRoom({
                     // BENCH always last
                     if (a.type === "BENCH" && b.type !== "BENCH") return 1;
                     if (b.type === "BENCH" && a.type !== "BENCH") return -1;
-                    // SUPERFLEX before FLEX
-                    if (a.type === "SUPERFLEX" && b.type === "FLEX") return -1;
-                    if (b.type === "SUPERFLEX" && a.type === "FLEX") return 1;
+                    // FLEX before SUPERFLEX
+                    if (a.type === "FLEX" && b.type === "SUPERFLEX") return -1;
+                    if (b.type === "FLEX" && a.type === "SUPERFLEX") return 1;
                     return 0;
                   })
-                  .filter((s) => !(collapsed[i] && s.type === "BENCH"))
+                  .filter((s) => !(s.type === "BENCH" && collapsed))
                   .map((slot) => {
                     const posPlayers = team.players.filter((p) => {
                       if (slot.type === "FLEX") return ["RB", "WR", "TE"].includes(p.position);
@@ -514,22 +514,28 @@ export function DraftRoom({
                       );
                     });
                   })}
-                {/* Collapse/expand toggle */}
-                <button
-                  onClick={(e) => { e.stopPropagation(); setCollapsed({ ...collapsed, [i]: !collapsed[i] }); }}
-                  className="w-full flex items-center justify-center gap-1 px-1.5 py-1 rounded-[4px] text-[10px] text-muted-foreground hover:bg-muted/50 transition-colors"
-                >
-                  {collapsed[i] ? (
-                    <><span>▴ Show all {team.players.length} players</span></>
-                  ) : (
-                    <><span>▾ Show only starters</span></>
-                  )}
-                </button>
               </div>
 
             </button>
           );
         })}
+      </div>
+
+      {/* Bench toggle */}
+      <div className="flex items-center justify-between px-1.5">
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
+        >
+          {collapsed ? (
+            <><span>▴</span><span>Show bench</span></>
+          ) : (
+            <><span>▾</span><span>Hide bench</span></>
+          )}
+        </button>
+        <span className="text-xs text-muted-foreground">
+          {teams.reduce((sum, t) => sum + t.players.length, 0)} players drafted
+        </span>
       </div>
 
       {/* Available players */}
