@@ -31,6 +31,7 @@ interface PlayerTableProps {
 type SortKey =
   | "overallRank"
   | "name"
+  | "age"
   | "position"
   | "positionRank"
   | "auctionValue"
@@ -117,6 +118,9 @@ export function PlayerTable({
           break;
         case "tier":
           cmp = a.tier - b.tier;
+          break;
+        case "age":
+          cmp = a.age - b.age;
           break;
         case "team":
           cmp = a.team.localeCompare(b.team);
@@ -383,6 +387,7 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
               <SortHeader label="Rank" sortKey="overallRank" />
               <SortHeader label="Player" sortKey="name" />
               <SortHeader label="Team" sortKey="team" />
+              <SortHeader label="Age" sortKey="age" />
               <SortHeader label="Pos" sortKey="position" />
               <SortHeader label="Pos Rank" sortKey="positionRank" />
               <SortHeader label="Auction $" sortKey="auctionValue" />
@@ -434,6 +439,9 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
                 </td>
                 <td className="px-3 py-2.5 text-muted-foreground">
                   {teamAbbreviation(p.team)}
+                </td>
+                <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">
+                  {p.age}
                 </td>
                 <td className={cn("px-3 py-2.5 font-medium", positionColor(p.position))}>
                   {p.position}

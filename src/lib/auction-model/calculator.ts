@@ -202,30 +202,49 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
     group.sort((a, b) => b.scaledValue - a.scaledValue);
     group.forEach((p, i) => { undraftedPosRanks[p.id] = i + 1; });
   }
-  // Adjust drafted position ranks to account for undrafted ahead of them
+  // Merge all players (drafted + undrafted) by scaled value for one global ranking per position
+  // First collect all undrafted players with their scaled values
+  const undraftedScaled = undrafted
+    .filter((p) => !result.players.find((rp) => rp.id === p.id))
+    .map((p) => ({ ...p, scaledValue: getScaledVal(p) }));
+
+  // Combine all players sorted by scaled value, get position order
+  const allByPosition: Record<string, Array<{id: number; scaledValue: number}>> = {};
   for (const dp of result.players) {
-    const undraftedAhead = (posGroups[dp.position] ?? [])
-      .filter(u => u.scaledValue > dp.scaledValue).length;
-    dp.positionRank = dp.positionRank + undraftedAhead;
+    if (!allByPosition[dp.position]) allByPosition[dp.position] = [];
+    allByPosition[dp.position].push({ id: dp.id, scaledValue: dp.scaledValue });
+  }
+  for (const up of undraftedScaled) {
+    if (!allByPosition[up.position]) allByPosition[up.position] = [];
+    allByPosition[up.position].push({ id: up.id, scaledValue: up.scaledValue });
+  }
+  // Assign sequential position ranks
+  const globalPosRanks: Record<number, number> = {};
+  for (const [, group] of Object.entries(allByPosition)) {
+    group.sort((a, b) => b.scaledValue - a.scaledValue);
+    group.forEach((p, i) => { globalPosRanks[p.id] = i + 1; });
+  }
+  // Apply to drafted
+  for (const dp of result.players) {
+    dp.positionRank = globalPosRanks[dp.id] ?? dp.positionRank;
   }
 
   // Add undrafted players — display $1 but $0 toward budget
-  const undraftedSorted = [...undrafted]
-    .filter((p) => !result.players.find((rp) => rp.id === p.id))
-    .sort((a, b) => getScaledVal(b) - getScaledVal(a));
+  const undraftedSorted = [...undraftedScaled].sort((a, b) => b.scaledValue - a.scaledValue);
 
   const undraftedAsValues: PlayerWithValue[] = undraftedSorted
     .map((p, i) => {
-      const sv = getScaledVal(p);
+      const sv = p.scaledValue;
       const tier = sv >= 8000 ? 1 : sv >= 6000 ? 2 : sv >= 5000 ? 3 : sv >= 4000 ? 4 :
                    sv >= 3500 ? 5 : sv >= 3000 ? 6 : sv >= 2500 ? 7 : sv >= 2200 ? 8 :
                    sv >= 1900 ? 9 : sv >= 1700 ? 10 : sv >= 1500 ? 11 : sv >= 1300 ? 12 :
                    sv >= 1100 ? 13 : sv >= 1000 ? 14 : 15;
       return {
         ...p,
+        sourceValue: p.sourceValue,
         scaledValue: sv,
         auctionValue: 1,
-        positionRank: undraftedPosRanks[p.id] ?? 0,
+        positionRank: globalPosRanks[p.id] ?? 0,
         overallRank: result.players.length + i + 1,
         tier,
         drafted: false,
