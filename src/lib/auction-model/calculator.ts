@@ -165,21 +165,26 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
     replacementValues, playerPoolSize: drafted.length,
   }, totalLeagueBudget);
 
-  // Compute position ranks for undrafted players (by source value)
+  // Compute TEP-scaled value for ranking undrafted players
+  function getScaledVal(p: {position: string; sourceValue: number}): number {
+    return p.position === "TE" ? p.sourceValue * tepScalar : p.sourceValue;
+  }
+
+  // Compute position ranks for undrafted players (by TEP-scaled value)
   const undraftedPosRanks: Record<number, number> = {};
-  const posGroups: Record<string, Array<{id: number; sourceValue: number}>> = {};
+  const posGroups: Record<string, Array<{id: number; position: string; sourceValue: number; scaledValue: number}>> = {};
   for (const p of undrafted) {
     if (!posGroups[p.position]) posGroups[p.position] = [];
-    posGroups[p.position].push(p);
+    posGroups[p.position].push({ ...p, scaledValue: getScaledVal(p) });
   }
   for (const [, group] of Object.entries(posGroups)) {
-    group.sort((a, b) => b.sourceValue - a.sourceValue);
+    group.sort((a, b) => b.scaledValue - a.scaledValue);
     group.forEach((p, i) => { undraftedPosRanks[p.id] = i + 1; });
   }
   // Adjust drafted position ranks to account for undrafted ahead of them
   for (const dp of result.players) {
     const undraftedAhead = (posGroups[dp.position] ?? [])
-      .filter(u => u.sourceValue > dp.sourceValue).length;
+      .filter(u => u.scaledValue > dp.scaledValue).length;
     dp.positionRank = dp.positionRank + undraftedAhead;
   }
 
@@ -188,7 +193,7 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
     .filter((p) => !result.players.find((rp) => rp.id === p.id))
     .map((p, i) => ({
       ...p,
-      scaledValue: p.sourceValue,
+      scaledValue: getScaledVal(p),
       auctionValue: 1,
       positionRank: undraftedPosRanks[p.id] ?? 0,
       overallRank: result.players.length + i + 1,
