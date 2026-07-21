@@ -137,7 +137,7 @@ export function DraftBoard({ players, onToggleDrafted }: DraftBoardProps) {
             )}
           >
             <LayoutList size={14} />
-            By Value
+            By Tier
           </button>
         </div>
 
