@@ -67,6 +67,7 @@ export function DraftRoom({
   });
   const [showSetup, setShowSetup] = useState(teams.length === 0);
   const [showThresholdConfig, setShowThresholdConfig] = useState(false);
+  const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
   const [thresholds, setThresholds] = useState<{ bargain: number; overpay: number }>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("auction-calc-thresholds");
@@ -467,80 +468,63 @@ export function DraftRoom({
               </div>
 
               {/* Roster slots */}
-              <div className="p-1.5 space-y-0.5 min-h-[60px]">
-                {settings.rosterSlots.map((slot) => {
-                    // Find players assigned to this slot position
+              <div className="p-1.5 space-y-0.5 min-h-[40px]">
+                {settings.rosterSlots
+                  .sort((a, b) => {
+                    // BENCH always last
+                    if (a.type === "BENCH" && b.type !== "BENCH") return 1;
+                    if (b.type === "BENCH" && a.type !== "BENCH") return -1;
+                    // SUPERFLEX before FLEX
+                    if (a.type === "SUPERFLEX" && b.type === "FLEX") return -1;
+                    if (b.type === "SUPERFLEX" && a.type === "FLEX") return 1;
+                    return 0;
+                  })
+                  .filter((s) => !(collapsed[i] && s.type === "BENCH"))
+                  .map((slot) => {
                     const posPlayers = team.players.filter((p) => {
-                      if (slot.type === "FLEX")
-                        return ["RB", "WR", "TE"].includes(p.position);
-                      if (slot.type === "SUPERFLEX")
-                        return ["QB", "RB", "WR", "TE"].includes(p.position);
+                      if (slot.type === "FLEX") return ["RB", "WR", "TE"].includes(p.position);
+                      if (slot.type === "SUPERFLEX") return ["QB", "RB", "WR", "TE"].includes(p.position);
                       return p.position === slot.type;
                     });
 
-                    // Show up to slot.count rows for this position
-                    const rows: React.ReactNode[] = [];
-                    for (let s = 0; s < slot.count; s++) {
+                    return Array.from({ length: slot.count }, (_, s) => {
                       const player = posPlayers[s];
                       if (player) {
                         const pc = POS_COLORS[player.position] ?? POS_COLORS.WR;
-                        const indicator = valueIndicator(
-                          player.winningBid ?? 0,
-                          player.auctionValue,
-                          thresholds.bargain,
-                          thresholds.overpay,
-                        );
+                        const indicator = valueIndicator(player.winningBid ?? 0, player.auctionValue, thresholds.bargain, thresholds.overpay);
                         const pIdx = team.players.indexOf(player);
-                        rows.push(
-                          <div
-                            key={`${slot.type}-${s}-filled`}
-                            className={cn(
-                              "flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border",
-                              pc.bg,
-                              pc.border,
-                            )}
-                          >
+                        return (
+                          <div key={`${slot.type}-${s}-filled`} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border", pc.bg, pc.border)}>
                             <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                              <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>
-                                {slot.type === "FLEX" ? "FX" : slot.type === "SUPERFLEX" ? "SF" : slot.type}
-                              </span>
-                              <span className="truncate text-foreground text-[10px]">
-                                {player.name}
-                              </span>
+                              <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{slot.type === "FLEX" ? "FX" : slot.type === "SUPERFLEX" ? "SF" : slot.type}</span>
+                              <span className="truncate text-foreground text-[10px]">{player.name}</span>
                             </div>
                             <div className="flex items-center gap-0.5 shrink-0">
-                              <span className={cn("font-mono tabular-nums text-[10px]", indicator.color)}>
-                                {formatCurrency(player.winningBid ?? 0)}
-                              </span>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); editWinningBid(i, pIdx); }}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground"
-                                title="Edit bid"
-                              >
-                                <Edit3 size={8} />
-                              </button>
+                              <span className={cn("font-mono tabular-nums text-[10px]", indicator.color)}>{formatCurrency(player.winningBid ?? 0)}</span>
+                              <button onClick={(e) => { e.stopPropagation(); editWinningBid(i, pIdx); }} className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" title="Edit bid"><Edit3 size={8} /></button>
                             </div>
-                          </div>
-                        );
-                      } else {
-                        const pc = POS_COLORS[slot.type as string] ?? { bg: "bg-muted/30", text: "text-muted-foreground", border: "border-border/50" };
-                        rows.push(
-                          <div
-                            key={`${slot.type}-${s}-empty`}
-                            className={cn(
-                              "flex items-center px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed",
-                              pc.border,
-                            )}
-                          >
-                            <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>
-                              {slot.type === "FLEX" ? "FX" : slot.type === "SUPERFLEX" ? "SF" : slot.type}
-                            </span>
                           </div>
                         );
                       }
-                    }
-                    return rows;
+                      const pc = POS_COLORS[slot.type as string] ?? { bg: "bg-muted/30", text: "text-muted-foreground", border: "border-border/50" };
+                      return (
+                        <div key={`${slot.type}-${s}-empty`} className={cn("flex items-center px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed", pc.border)}>
+                          <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{slot.type === "FLEX" ? "FX" : slot.type === "SUPERFLEX" ? "SF" : slot.type}</span>
+                        </div>
+                      );
+                    });
                   })}
+                {/* Collapse/expand toggle */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setCollapsed({ ...collapsed, [i]: !collapsed[i] }); }}
+                  className="w-full flex items-center justify-center gap-1 px-1.5 py-1 rounded-[4px] text-[10px] text-muted-foreground hover:bg-muted/50 transition-colors"
+                >
+                  {collapsed[i] ? (
+                    <><span>▴ Show all {team.players.length} players</span></>
+                  ) : (
+                    <><span>▾ Show only starters</span></>
+                  )}
+                </button>
               </div>
 
             </button>
