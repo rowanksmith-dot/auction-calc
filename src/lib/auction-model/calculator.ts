@@ -2,23 +2,20 @@
  * Auction Value Calculator
  *
  * Converts FantasyCalc market values into auction-dollar values using
- * a replacement-based model with proportional allocation.
+ * a bench-average threshold model.
  *
- * Methodology (10-step):
+ * Methodology (7-step):
  * 1. Total league budget = teams × budgetPerTeam
  * 2. Drafted player count = teams × rosterSize
  * 3. Reserved minimum budget = draftedCount × minBid
  * 4. Discretionary budget = totalBudget - reservedMinimum
  * 5. Construct legal league-wide player pool (max-value slot assignment)
- * 6. Replacement level = value of the best UNDRAFTED player at each position
- * 7. Surplus = max(playerValue - replacement[pos], 0), weight = (surplus+0.5)^exponent - 0.5^exponent
- * 8. Compress weight by position-relative percentile: fringe players lose weight smoothly
- * 9. Distribute discretionary budget proportional to compressed weight
- * 10. Round using largest-remainder method
- *
- * IMPORTANT: Replacement level uses the best undrafted player (marginal roster
- * boundary), NOT the worst starter. This gives a market-correct replacement
- * baseline and avoids concentrating all money on a handful of elite players.
+ * 6. Find bench baseline: average scaledValue of the first N bench players
+ *    (one per team, immediately after starters). Players below 60% of this
+ *    average get minimum bid ($1, zero weight). Everyone above gets weight
+ *    proportional to (scaledValue - benchThreshold)^exponent.
+ * 7. Distribute discretionary budget proportional to weight, round using
+ *    largest-remainder method.
  */
 
 import type { LeagueSettings, PlayerWithValue, RosterSlotType } from "../types";
@@ -114,14 +111,33 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
     tepScalar = 1 + settings.tePremiumCustom * 0.3;
 
   // ── Step 6: Surplus ──
+  // First compute TEP-scaled values for all drafted players
+  const withScaled = drafted.map((p) => ({
+    ...p,
+    sv: p.position === "TE" ? p.sourceValue * tepScalar : p.sourceValue,
+  }));
+  // Sort by scaled value descending to find the bench cutoff
+  const byScaled = [...withScaled].sort((a, b) => b.sv - a.sv);
+
+  // Calculate how many starters there are (all non-BENCH slots)
+  const starterCount = settings.rosterSlots
+    .filter((s) => s.type !== "BENCH")
+    .reduce((sum, s) => sum + s.count, 0) * settings.numTeams;
+  // Bench starts at index = starterCount. Take next N (one per team) as "top bench."
+  const benchStartIdx = starterCount;
+  const benchDepth = settings.numTeams; // one bench player per team
+  const benchPlayers = byScaled.slice(benchStartIdx, benchStartIdx + benchDepth);
+  const benchAvg = benchPlayers.length > 0
+    ? benchPlayers.reduce((sum, p) => sum + p.sv, 0) / benchPlayers.length
+    : 0;
+  const benchThreshold = benchAvg * 0.60;
+
   const scored: ScoredPlayer[] = drafted.map((p) => {
     const scaledValue = p.position === "TE" ? p.sourceValue * tepScalar : p.sourceValue;
-    const repl = replacementValues[p.position] ?? 0;
-    const surplus = Math.max(scaledValue - repl, 0);
     const sv = Math.round(scaledValue * 100) / 100;
-    // Tier 1 gets full weight, lowest tiers lose weight via surplus floor
-    const effectiveSurplus = surplus + 0.2;
-    const weight = Math.pow(effectiveSurplus, settings.exponent) - Math.pow(0.2, settings.exponent);
+    // Player is below the bench threshold → minimum bid only
+    const surplus = scaledValue < benchThreshold ? 0 : Math.max(scaledValue - benchThreshold, 0);
+    const weight = surplus > 0 ? Math.pow(surplus, settings.exponent) : 0;
     return {
       ...p,
       scaledValue: sv,
@@ -138,15 +154,9 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
     };
   });
 
-  for (const p of scored) {
-    if (p.surplus <= 0) {
-      p.weight = 0;
-    }
-  }
-
   const totalWeight = scored.reduce((sum, p) => sum + p.weight, 0);
 
-  // ── Step 8: Fallback if all surpluses zero ──
+  // ── Step 7: Fallback if all surpluses zero ──
   if (totalWeight === 0) {
     const totalSource = sorted.reduce((s, p) => {
       const sv = p.position === "TE" ? p.sourceValue * tepScalar : p.sourceValue;
