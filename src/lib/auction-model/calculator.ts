@@ -199,21 +199,24 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
     .sort((a, b) => getScaledVal(b) - getScaledVal(a));
 
   const undraftedAsValues: PlayerWithValue[] = undraftedSorted
-    .map((p, i) => ({
-      ...p,
-      scaledValue: getScaledVal(p),
-      auctionValue: 1,
-      positionRank: undraftedPosRanks[p.id] ?? 0,
-      overallRank: result.players.length + i + 1,
-      tier: getScaledVal(p) >= 8000 ? 1 : getScaledVal(p) >= 6000 ? 2 : getScaledVal(p) >= 5000 ? 3 :
-           getScaledVal(p) >= 4000 ? 4 : getScaledVal(p) >= 3500 ? 5 : getScaledVal(p) >= 3000 ? 6 :
-           getScaledVal(p) >= 2500 ? 7 : getScaledVal(p) >= 2200 ? 8 : getScaledVal(p) >= 1900 ? 9 :
-           getScaledVal(p) >= 1700 ? 10 : getScaledVal(p) >= 1500 ? 11 : getScaledVal(p) >= 1300 ? 12 :
-           getScaledVal(p) >= 1100 ? 13 : getScaledVal(p) >= 1000 ? 14 : 15,
-      drafted: false,
-      winningBid: null,
-      draftedBy: null,
-    }));
+    .map((p, i) => {
+      const sv = getScaledVal(p);
+      const tier = sv >= 8000 ? 1 : sv >= 6000 ? 2 : sv >= 5000 ? 3 : sv >= 4000 ? 4 :
+                   sv >= 3500 ? 5 : sv >= 3000 ? 6 : sv >= 2500 ? 7 : sv >= 2200 ? 8 :
+                   sv >= 1900 ? 9 : sv >= 1700 ? 10 : sv >= 1500 ? 11 : sv >= 1300 ? 12 :
+                   sv >= 1100 ? 13 : sv >= 1000 ? 14 : 15;
+      return {
+        ...p,
+        scaledValue: sv,
+        auctionValue: 1,
+        positionRank: undraftedPosRanks[p.id] ?? 0,
+        overallRank: result.players.length + i + 1,
+        tier,
+        drafted: false,
+        winningBid: null,
+        draftedBy: null,
+      };
+    });
 
   const allPlayers = [...result.players, ...undraftedAsValues];
   return {
