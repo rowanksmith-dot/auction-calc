@@ -570,8 +570,8 @@ export function DraftRoom({
                     <span className={cn("text-[10px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0 text-center min-w-[26px]", pc.bg, pc.text)}>
                       {p.position}
                     </span>
-                    <span className="text-[11px] font-mono tabular-nums text-muted-foreground shrink-0 w-6 text-right">
-                      {p.positionRank}
+                    <span className="text-[11px] font-mono tabular-nums text-muted-foreground shrink-0 w-12 text-right">
+                      {p.scaledValue.toFixed(0)}
                     </span>
                     <span className="text-xs font-mono tabular-nums text-muted-foreground w-5 text-right shrink-0">
                       {p.overallRank}
