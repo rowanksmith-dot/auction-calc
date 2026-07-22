@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import Link from "next/link";
 import {
   Calculator,
   Table2,
@@ -19,6 +20,7 @@ import type { LeagueSettings, PlayerWithValue } from "@/lib/types";
 import { DEFAULT_SETTINGS } from "@/lib/types";
 import { calculateAuctionValues } from "@/lib/auction-model/calculator";
 import { getFantasyCalcData, clearDataCache } from "@/lib/fantasycalc/adapter";
+import { useAppStore } from "@/lib/store/store";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { PlayerTable } from "@/components/PlayerTable";
@@ -70,9 +72,9 @@ function mergePlayers(
     .sort((a, b) => b.sourceValue - a.sourceValue);
 }
 
-// ── URL + Storage helpers ──
+// ── URL helper ──
 
-function loadSettingsFromUrl(): Partial<LeagueSettings> {
+function parseSettingsFromUrl(): Partial<LeagueSettings> {
   if (typeof window === "undefined") return {};
   const params = new URLSearchParams(window.location.search);
   if (params.size === 0) return {};
@@ -96,25 +98,23 @@ function loadSettingsFromUrl(): Partial<LeagueSettings> {
   return updates;
 }
 
-function loadSettingsFromStorage(): Partial<LeagueSettings> {
-  if (typeof window === "undefined") return {};
-  try {
-    const saved = localStorage.getItem("auction-calc-settings");
-    if (saved) return JSON.parse(saved);
-  } catch {}
-  return {};
-}
-
 // ── Main Component ──
 
 export default function Home() {
-  const [settings, setSettings] = useState<LeagueSettings>(
-    () => {
-      const fromUrl = loadSettingsFromUrl();
-      const fromStorage = loadSettingsFromStorage();
-      return { ...DEFAULT_SETTINGS, ...fromStorage, ...fromUrl };
-    },
-  );
+  // ── Zustand store subscriptions (narrow selectors) ──
+  const activeView = useAppStore((s) => s.activeView);
+  const settings = useAppStore((s) => s.settings);
+  const favorites = useAppStore((s) => s.favorites);
+  const showDiagnostics = useAppStore((s) => s.showDiagnostics);
+  const showMethodology = useAppStore((s) => s.showMethodology);
+  const setActiveView = useAppStore((s) => s.setActiveView);
+  const setSettings = useAppStore((s) => s.setSettings);
+  const toggleFavorite = useAppStore((s) => s.toggleFavorite);
+  const setShowDiagnostics = useAppStore((s) => s.setShowDiagnostics);
+  const setShowMethodology = useAppStore((s) => s.setShowMethodology);
+  const resetAllState = useAppStore((s) => s.resetAllState);
+
+  // ── Data state (server/cache, not persisted) ──
   const [allPlayers, setAllPlayers] = useState<PlayerWithValue[]>([]);
   const [dataState, setDataState] = useState<DataState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -122,12 +122,18 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<"api" | "fallback">("fallback");
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
-  const [favorites, setFavorites] = useState<Set<number>>(new Set());
-  const [showMethodology, setShowMethodology] = useState(false);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
-
+  // ── Fetch cache ──
+  const fetchCacheRef = useRef<Map<string, { data: DataState; ts: number }>>(new Map());
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const [fetchStats, setFetchStats] = useState<{
+    count: number;
+    lastUrl: string;
+    lastSize: number;
+    cacheHit: boolean;
+    timestamp: string;
+    reason: string;
+  }>({ count: 0, lastUrl: "", lastSize: 0, cacheHit: false, timestamp: "", reason: "" });
 
   // ── Data fetch (triggers when API-relevant settings change) ──
   const fetchKey = useMemo(() => {
@@ -141,19 +147,54 @@ export default function Home() {
     if (key === prevFetchKeyRef.current) return;
     prevFetchKeyRef.current = key;
 
+    // Check cache first
+    const cached = fetchCacheRef.current.get(key);
+    if (cached && Date.now() - cached.ts < 60000) {
+      setDataState(cached.data);
+      setLastRefresh(cached.data.metadata.timestamp);
+      setDataSource(cached.data.metadata.source);
+      setLoading(false);
+      setFetchStats((prev) => ({
+        ...prev,
+        lastUrl: `${window.location.origin}/api/values?${key}`,
+        lastSize: cached.data.raw.length,
+        cacheHit: true,
+        timestamp: new Date().toISOString(),
+        reason: "Cache hit — fetch key unchanged",
+      }));
+      return;
+    }
+
     let cancelled = false;
     const doFetch = async () => {
       setLoading(true);
       setError(null);
+
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       try {
-        const result = await getFantasyCalcData(settings);
-        if (cancelled) return;
+        const result = await getFantasyCalcData(settings, controller.signal);
+        if (cancelled || controller.signal.aborted) return;
         const raw = mergePlayers(result.players, result.values);
-        setDataState({ raw, metadata: { timestamp: result.timestamp, source: result.source } });
+        const data: DataState = { raw, metadata: { timestamp: result.timestamp, source: result.source } };
+        fetchCacheRef.current.set(key, { data, ts: Date.now() });
+        setFetchStats((prev) => ({
+          count: prev.count + 1,
+          lastUrl: result.source === "fallback" ? "(fallback)" : `${window.location.origin}/api/values?${key}`,
+          lastSize: raw.length,
+          cacheHit: false,
+          timestamp: new Date().toISOString(),
+          reason: `Settings changed: ${key}`,
+        }));
+        setDataState(data);
         setLastRefresh(result.timestamp);
         setDataSource(result.source);
-      } catch (e) {
-        if (!cancelled) {
+      } catch (e: unknown) {
+        if (!cancelled && !(e instanceof DOMException && e.name === "AbortError")) {
           setError(e instanceof Error ? e.message : "Failed to load player data");
         }
       } finally {
@@ -161,12 +202,18 @@ export default function Home() {
       }
     };
     doFetch();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
   }, [fetchKey, settings]);
 
-  // ── Recalculate auction values (any time raw data or calculation settings change) ──
+  // ── Recalculate auction values ──
   const calcKey = useMemo(() => {
-    return JSON.stringify({ settings, rawHash: dataState?.raw.map((p) => `${p.id}:${p.sourceValue}`).join(",") });
+    return JSON.stringify({
+      settings,
+      rawHash: dataState?.raw.map((p) => `${p.id}:${p.sourceValue}`).join(","),
+    });
   }, [settings, dataState?.raw]);
 
   useEffect(() => {
@@ -175,13 +222,9 @@ export default function Home() {
     setCalculating(true);
     setError(null);
 
-    // Use requestAnimationFrame to avoid blocking the UI thread
     const id = requestAnimationFrame(() => {
       try {
-        const result = calculateAuctionValues({
-          players: dataState.raw,
-          settings,
-        });
+        const result = calculateAuctionValues({ players: dataState.raw, settings });
         setAllPlayers(result.players);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Calculation failed");
@@ -194,14 +237,6 @@ export default function Home() {
   }, [calcKey]);
 
   // ── Handlers ──
-  function toggleFavorite(playerId: number) {
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      if (next.has(playerId)) next.delete(playerId);
-      else next.add(playerId);
-      return next;
-    });
-  }
 
   function handleToggleDrafted(playerId: number) {
     setAllPlayers((prev) =>
@@ -209,28 +244,33 @@ export default function Home() {
     );
   }
 
+  function handleSaveSettings(next: LeagueSettings) {
+    setSettings(next);
+  }
+
+  function handleResetDefaults() {
+    resetAllState();
+  }
+
   function handleUpdatePlayers(updated: PlayerWithValue[]) {
     setAllPlayers(updated);
   }
 
-  function handleSaveSettings(next: LeagueSettings) {
-    setSettings(next);
-    localStorage.setItem("auction-calc-settings", JSON.stringify(next));
-  }
-
-  function handleResetDefaults() {
-    handleSaveSettings(DEFAULT_SETTINGS);
-  }
-
   async function handleRefresh() {
     clearDataCache();
+    fetchCacheRef.current.delete(fetchKey);
     prevFetchKeyRef.current = null;
     setLoading(true);
     setError(null);
     try {
-      const result = await getFantasyCalcData(settings);
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      const result = await getFantasyCalcData(settings, controller.signal);
+      if (controller.signal.aborted) return;
       const raw = mergePlayers(result.players, result.values);
-      setDataState({ raw, metadata: { timestamp: result.timestamp, source: result.source } });
+      const data: DataState = { raw, metadata: { timestamp: result.timestamp, source: result.source } };
+      fetchCacheRef.current.set(fetchKey, { data, ts: Date.now() });
+      setDataState(data);
       setLastRefresh(result.timestamp);
       setDataSource(result.source);
     } catch (e) {
@@ -269,26 +309,8 @@ export default function Home() {
     return `${settings.numTeams} teams · ${scoringLabel} · ${qbLabel} · $${settings.budget} budget · ${rosterCount} roster spots`;
   }, [settings]);
 
-  // totalValue (display) includes $1 undrafted; actualSpent only counts drafted players
-  const actualSpent = allPlayers.filter(p => p.drafted).reduce((sum, p) => sum + p.auctionValue, 0);
+  const actualSpent = allPlayers.filter((p) => p.drafted).reduce((sum, p) => sum + p.auctionValue, 0);
   const totalBudget = settings.numTeams * settings.budget;
-
-  // ── Diagnostics data ──
-  const diagnosticsProps = useMemo(() => ({
-    settings,
-    dataSource,
-    lastRefresh,
-    rawDataCount: dataState?.raw.length ?? 0,
-    playerCount: allPlayers.length,
-    totalValue: actualSpent,
-    totalBudget,
-    draftedCount: allPlayers.filter((p) => p.auctionValue > 0).length,
-    loading,
-    calculating,
-    error,
-    onClose: () => setShowDiagnostics(false),
-    replacementValues: allPlayers.length > 0 ? undefined : undefined,
-  }), [settings, dataSource, lastRefresh, dataState, allPlayers, actualSpent, totalBudget, loading, calculating, error]);
 
   // ── Render ──
 
@@ -313,21 +335,21 @@ export default function Home() {
             <Bug size={14} />
           </button>
 
-          <a
+          <Link
             href="/how-it-works"
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             <Info size={14} />
             <span className="hidden sm:inline">How It Works</span>
-          </a>
+          </Link>
 
-          <a
+          <Link
             href="/privacy"
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             <Shield size={14} />
             <span className="hidden sm:inline">Privacy</span>
-          </a>
+          </Link>
         </div>
       </header>
 
@@ -349,10 +371,10 @@ export default function Home() {
             replacementValues={
               allPlayers.length > 0
                 ? {
-                    QB: allPlayers.filter(p => p.position === "QB" && p.auctionValue === 0)[0]?.sourceValue ?? 0,
-                    RB: allPlayers.filter(p => p.position === "RB" && p.auctionValue === 0)[0]?.sourceValue ?? 0,
-                    WR: allPlayers.filter(p => p.position === "WR" && p.auctionValue === 0)[0]?.sourceValue ?? 0,
-                    TE: allPlayers.filter(p => p.position === "TE" && p.auctionValue === 0)[0]?.sourceValue ?? 0,
+                    QB: allPlayers.filter((p) => p.position === "QB" && p.auctionValue === 0)[0]?.sourceValue ?? 0,
+                    RB: allPlayers.filter((p) => p.position === "RB" && p.auctionValue === 0)[0]?.sourceValue ?? 0,
+                    WR: allPlayers.filter((p) => p.position === "WR" && p.auctionValue === 0)[0]?.sourceValue ?? 0,
+                    TE: allPlayers.filter((p) => p.position === "TE" && p.auctionValue === 0)[0]?.sourceValue ?? 0,
                   }
                 : undefined
             }
@@ -427,13 +449,13 @@ export default function Home() {
             {loading ? "Loading..." : "Refresh & Recalculate"}
           </button>
 
-          {/* View switcher */}
+          {/* View switcher — uses Zustand store for persistence */}
           <div className="flex rounded-xl border border-border">
             <button
-              onClick={() => setViewMode("list")}
+              onClick={() => setActiveView("list")}
               className={cn(
                 "px-3 py-2 text-sm flex items-center gap-1.5 transition-all duration-150",
-                viewMode === "list"
+                activeView === "list"
                   ? "bg-primary text-primary-foreground ring-2 ring-primary scale-[1.02] z-10 shadow-sm rounded-[6px]"
                   : "bg-background text-secondary-foreground hover:bg-secondary/80",
               )}
@@ -442,10 +464,10 @@ export default function Home() {
               List
             </button>
             <button
-              onClick={() => setViewMode("board")}
+              onClick={() => setActiveView("board")}
               className={cn(
                 "px-3 py-2 text-sm flex items-center gap-1.5 transition-all duration-150",
-                viewMode === "board"
+                activeView === "board"
                   ? "bg-primary text-primary-foreground ring-2 ring-primary scale-[1.02] z-10 shadow-sm rounded-[6px]"
                   : "bg-background text-secondary-foreground hover:bg-secondary/80",
               )}
@@ -454,10 +476,10 @@ export default function Home() {
               Board
             </button>
             <button
-              onClick={() => setViewMode("draft")}
+              onClick={() => setActiveView("draft")}
               className={cn(
                 "px-3 py-2 text-sm flex items-center gap-1.5 transition-all duration-150",
-                viewMode === "draft"
+                activeView === "draft"
                   ? "bg-primary text-primary-foreground ring-2 ring-primary scale-[1.02] z-10 shadow-sm rounded-[6px]"
                   : "bg-background text-secondary-foreground hover:bg-secondary/80",
               )}
@@ -530,8 +552,8 @@ export default function Home() {
           </div>
         )}
 
-        {/* Results */}
-        {!loading && !error && viewMode === "list" && allPlayers.length > 0 && (
+        {/* Results — uses activeView from Zustand store */}
+        {!loading && !error && activeView === "list" && allPlayers.length > 0 && (
           <div className="bg-card border border-border rounded-xl p-4">
             <PlayerTable
               players={allPlayers}
@@ -542,7 +564,7 @@ export default function Home() {
           </div>
         )}
 
-        {!loading && !error && viewMode === "board" && allPlayers.length > 0 && (
+        {!loading && !error && activeView === "board" && allPlayers.length > 0 && (
           <div className="bg-card border border-border rounded-xl p-4">
             <DraftBoard
               players={allPlayers}
@@ -551,7 +573,7 @@ export default function Home() {
           </div>
         )}
 
-        {!loading && !error && viewMode === "draft" && allPlayers.length > 0 && (
+        {!loading && !error && activeView === "draft" && allPlayers.length > 0 && (
           <DraftRoom
             players={allPlayers}
             settings={settings}
@@ -650,12 +672,12 @@ export default function Home() {
               >
                 How Values Are Calculated
               </button>
-              <a
+              <Link
                 href="/privacy"
                 className="hover:text-foreground transition-colors"
               >
                 Privacy
-              </a>
+              </Link>
               <a
                 href="https://fantasycalc.com"
                 target="_blank"

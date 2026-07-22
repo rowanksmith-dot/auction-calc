@@ -106,6 +106,7 @@ function buildFantasyCalcParams(settings: LeagueSettings): URLSearchParams {
  */
 export async function getFantasyCalcData(
   settings: LeagueSettings,
+  signal?: AbortSignal,
 ): Promise<FetchResult> {
   const cacheKey = JSON.stringify(buildFantasyCalcParams(settings));
 
@@ -119,7 +120,7 @@ export async function getFantasyCalcData(
   try {
     const params = buildFantasyCalcParams(settings);
     const url = `/api/values?${params.toString()}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    const res = await fetch(url, { signal: signal ?? AbortSignal.timeout(10_000) });
 
     if (res.ok) {
       const data = await res.json();

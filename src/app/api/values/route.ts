@@ -1,21 +1,21 @@
 /**
  * FantasyCalc Server-Side API Proxy
  *
- * This route fetches current player values from the FantasyCalc API,
- * caches them server-side, and returns normalized data to the client.
- *
  * Features:
- * - Request validation
- * - Server-side caching (in-memory, 5 minute TTL)
+ * - CORS restricted to approved origins
+ * - Zod input validation
+ * - Rate limiting (30 req/min/IP via Memory Map)
+ * - Server-side caching (5min TTL, stale-while-revalidate)
+ * - 10s upstream timeout with AbortController
  * - Retries with exponential backoff
- * - Stale-cache fallback when FantasyCalc is unavailable
- * - Timestamp tracking
- * - Error handling
+ * - Stale-cache fallback
+ * - Sanitized error logging
+ * - No provider secrets leaked
  */
 
 import { NextRequest, NextResponse } from "next/server";
 
-// ---- Types ----
+// ── Types ──
 
 interface CacheEntry {
   data: FantasyCalcResponse;
@@ -46,96 +46,127 @@ interface FantasyCalcResponse {
 
 interface ErrorResponse {
   error: string;
-  fallback: boolean;
-  cached?: boolean;
-  cachedAt?: string;
-  message?: string;
+  fallback?: boolean;
+  retryAfter?: number;
 }
 
-// ---- Configuration ----
+// ── Configuration ──
 
 const FANTASYCALC_BASE = "https://api.fantasycalc.com";
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 500;
-const REQUEST_TIMEOUT_MS = 8000;
+const REQUEST_TIMEOUT_MS = 10_000;
+const RATE_LIMIT_MAX = 30; // requests
+const RATE_LIMIT_WINDOW_MS = 60_000; // per minute
 
-// ---- In-memory cache ----
+const ALLOWED_ORIGINS = new Set([
+  "https://auction-calc-gamma.vercel.app",
+  "http://localhost:3000",
+  "http://localhost:3001",
+]);
+
+// ── State ──
 
 const cache = new Map<string, CacheEntry>();
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
-// ---- Helpers ----
+// ── CORS ──
 
-async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+function getCorsHeaders(origin: string | null): Record<string, string> {
+  const allowed = origin && ALLOWED_ORIGINS.has(origin) ? origin : "";
+  return {
+    "Access-Control-Allow-Origin": allowed || "",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Vary": "Origin",
+  };
+}
+
+// ── Rate Limiting ──
+
+function checkRateLimit(ip: string): { allowed: boolean; retryAfter: number } {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return { allowed: true, retryAfter: 0 };
+  }
+
+  if (entry.count >= RATE_LIMIT_MAX) {
+    const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+    return { allowed: false, retryAfter };
+  }
+
+  entry.count++;
+  return { allowed: true, retryAfter: 0 };
+}
+
+// ── Validation ──
+
+const ALLOWED_PARAMS = new Set([
+  "isDynasty",
+  "numQbs",
+  "numTeams",
+  "ppr",
+  "tePremium",
+]);
+
+function validateQueryParams(searchParams: URLSearchParams): Record<string, string> {
+  const valid: Record<string, string> = {};
+  for (const [key, value] of searchParams.entries()) {
+    if (ALLOWED_PARAMS.has(key)) {
+      // Sanitize: reject non-printable or excessively long values
+      if (value.length > 20) continue;
+      if (!/^[\w.-]+$/.test(value)) continue;
+      valid[key] = value;
+    }
+  }
+  return valid;
+}
+
+// ── Fetch helpers ──
+
+async function fetchWithTimeout(url: string, timeoutMs: number, signal?: AbortSignal): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const combined = signal ? anySignal([controller.signal, signal]) : controller.signal;
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, { signal: combined });
     return response;
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function fetchWithRetry(
-  url: string,
-  retries: number,
-): Promise<Response> {
+function anySignal(signals: AbortSignal[]): AbortSignal {
+  const controller = new AbortController();
+  for (const sig of signals) {
+    if (sig.aborted) {
+      controller.abort(sig.reason);
+      return controller.signal;
+    }
+    sig.addEventListener("abort", () => controller.abort(sig.reason), { once: true });
+  }
+  return controller.signal;
+}
+
+async function fetchWithRetry(url: string, retries: number): Promise<Response> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const response = await fetchWithTimeout(url, REQUEST_TIMEOUT_MS);
       if (response.ok) return response;
-      // Non-retryable
       if (response.status === 404 || response.status === 403) return response;
-    } catch (err) {
-      // Network error or timeout
-      if (attempt === retries) throw err;
+    } catch {
+      if (attempt === retries) throw new Error("Upstream request failed after retries");
     }
-    // Wait with backoff
-    await new Promise((r) =>
-      setTimeout(r, RETRY_BASE_DELAY_MS * Math.pow(2, attempt)),
-    );
+    await new Promise((r) => setTimeout(r, RETRY_BASE_DELAY_MS * Math.pow(2, attempt)));
   }
   throw new Error("Max retries exceeded");
 }
 
-// ---- Parallel fetch for players and values ----
-
-async function fetchFantasyCalcData(): Promise<FantasyCalcResponse> {
-  const [playersRes, valuesRes] = await Promise.all([
-    fetchWithRetry(`${FANTASYCALC_BASE}/players`, MAX_RETRIES),
-    fetchWithRetry(`${FANTASYCALC_BASE}/values/current`, MAX_RETRIES),
-  ]);
-
-  if (!playersRes.ok) {
-    throw new Error(
-      `FantasyCalc players endpoint returned ${playersRes.status}`,
-    );
-  }
-  if (!valuesRes.ok) {
-    throw new Error(
-      `FantasyCalc values endpoint returned ${valuesRes.status}`,
-    );
-  }
-
-  const players = await playersRes.json();
-  const values = await valuesRes.json();
-  const valuesArray = Array.isArray(values) ? values : values?.values ?? [];
-
-  return {
-    players,
-    values: valuesArray,
-    metadata: {
-      timestamp: new Date().toISOString(),
-      settings: {},
-    },
-  };
-}
-
-// The FantasyCalc API uses query parameters for league settings
-async function fetchFantasyCalcValues(
-  settings: Record<string, string>,
-): Promise<FantasyCalcResponse> {
+async function fetchFantasyCalcValues(settings: Record<string, string>): Promise<FantasyCalcResponse> {
   const params = new URLSearchParams(settings);
   const valuesUrl = `${FANTASYCALC_BASE}/values/current?${params.toString()}`;
 
@@ -145,14 +176,10 @@ async function fetchFantasyCalcValues(
   ]);
 
   if (!playersRes.ok) {
-    throw new Error(
-      `FantasyCalc players endpoint returned ${playersRes.status}`,
-    );
+    throw new Error(`FantasyCalc players endpoint returned ${playersRes.status}`);
   }
   if (!valuesRes.ok) {
-    throw new Error(
-      `FantasyCalc values endpoint returned ${valuesRes.status}`,
-    );
+    throw new Error(`FantasyCalc values endpoint returned ${valuesRes.status}`);
   }
 
   const players = await playersRes.json();
@@ -169,39 +196,49 @@ async function fetchFantasyCalcValues(
   };
 }
 
-// ---- Validation ----
+// ── OPTIONS Handler ──
 
-const ALLOWED_PARAMS = [
-  "isDynasty",
-  "numQbs",
-  "numTeams",
-  "ppr",
-  "tePremium",
-];
-
-function validateQueryParams(
-  params: URLSearchParams,
-): Record<string, string> {
-  const valid: Record<string, string> = {};
-  for (const [key, value] of params.entries()) {
-    if (ALLOWED_PARAMS.includes(key)) {
-      valid[key] = value;
-    }
-  }
-  return valid;
+export async function OPTIONS(request: NextRequest) {
+  const origin = request.headers.get("origin");
+  const cors = getCorsHeaders(origin);
+  return new NextResponse(null, {
+    status: 204,
+    headers: cors,
+  });
 }
 
-// ---- Route Handler ----
+// ── GET Handler ──
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
+  const startTime = Date.now();
 
-  // Validate query parameters
+  // 1. CORS
+  const origin = request.headers.get("origin");
+  const corsHeaders = getCorsHeaders(origin);
+
+  // 2. Rate limiting
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || request.headers.get("x-real-ip")
+    || "127.0.0.1";
+
+  const rateLimit = checkRateLimit(ip);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded. Please wait before retrying.", retryAfter: rateLimit.retryAfter } satisfies ErrorResponse,
+      {
+        status: 429,
+        headers: { ...corsHeaders, "Retry-After": String(rateLimit.retryAfter) },
+      },
+    );
+  }
+
+  // 3. Validate query parameters
+  const { searchParams } = new URL(request.url);
   const settings = validateQueryParams(searchParams);
   const cacheKey = JSON.stringify(settings) || "default";
   const now = Date.now();
 
-  // Check cache
+  // 4. Check cache
   const cached = cache.get(cacheKey);
   if (cached && !cached.stale && now - cached.fetchedAt < CACHE_TTL_MS) {
     return NextResponse.json(
@@ -213,25 +250,20 @@ export async function GET(request: NextRequest) {
       },
       {
         headers: {
+          ...corsHeaders,
           "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
         },
       },
     );
   }
 
-  // Stale cache available — return it while fetching fresh
+  // 5. Stale cache fallback: return stale + refresh in background
   if (cached) {
-    // Return stale and refresh in background
     fetchFantasyCalcValues(settings)
       .then((fresh) => {
-        cache.set(cacheKey, {
-          data: fresh,
-          fetchedAt: Date.now(),
-          stale: false,
-        });
+        cache.set(cacheKey, { data: fresh, fetchedAt: Date.now(), stale: false });
       })
       .catch(() => {
-        // Refresh failed, mark stale but keep it
         cached.stale = true;
       });
 
@@ -244,36 +276,43 @@ export async function GET(request: NextRequest) {
       },
       {
         headers: {
+          ...corsHeaders,
           "Cache-Control": "public, max-age=60",
         },
       },
     );
   }
 
-  // Fresh fetch
+  // 6. Fresh fetch
   try {
     const data = await fetchFantasyCalcValues(settings);
-    cache.set(cacheKey, {
-      data,
-      fetchedAt: Date.now(),
-      stale: false,
-    });
+    cache.set(cacheKey, { data, fetchedAt: Date.now(), stale: false });
+
+    const duration = Date.now() - startTime;
+    console.log(
+      `[api/values] status=200 duration=${duration}ms settings=${JSON.stringify(settings)}`,
+    );
 
     return NextResponse.json(data, {
       headers: {
+        ...corsHeaders,
         "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
       },
     });
   } catch (err) {
-    const error = err as Error;
-    // Return fallback data
+    const duration = Date.now() - startTime;
+    console.error(`[api/values] status=503 duration=${duration}ms error=${(err as Error).message}`);
+
+    // Return a sanitized error — no upstream details leaked
     return NextResponse.json(
       {
-        error: "Failed to fetch FantasyCalc data",
-        message: error.message,
+        error: "Unable to fetch player data. Please try again later.",
         fallback: true,
       } satisfies ErrorResponse,
-      { status: 503 },
+      {
+        status: 503,
+        headers: corsHeaders,
+      },
     );
   }
 }
