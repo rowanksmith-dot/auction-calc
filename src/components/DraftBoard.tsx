@@ -114,15 +114,14 @@ export function DraftBoard({ players, onToggleDrafted }: DraftBoardProps) {
           />
         </div>
 
-        <div className="flex rounded-lg border border-border overflow-hidden">
+        <div className="flex rounded-lg border border-border">
           <button
             onClick={() => setView("position")}
             className={cn(
-              "px-3 py-2 text-sm flex items-center gap-1.5 transition-all font-bold relative",
+              "px-3 py-2 text-sm flex items-center gap-1.5 transition-all font-bold",
               view === "position"
-                ? "bg-primary/15 text-primary shadow-sm border border-primary/30"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted",
-              view === "position" && "after:absolute after:bottom-0 after:left-1 after:right-1 after:h-0.5 after:bg-primary after:rounded-full",
+                ? "bg-primary text-primary-foreground ring-2 ring-primary scale-[1.02] z-10 rounded-[5px]"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             <LayoutGrid size={14} />
@@ -131,11 +130,10 @@ export function DraftBoard({ players, onToggleDrafted }: DraftBoardProps) {
           <button
             onClick={() => setView("value")}
             className={cn(
-              "px-3 py-2 text-sm flex items-center gap-1.5 transition-all font-bold relative",
+              "px-3 py-2 text-sm flex items-center gap-1.5 transition-all font-bold",
               view === "value"
-                ? "bg-primary/15 text-primary shadow-sm border border-primary/30"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted",
-              view === "value" && "after:absolute after:bottom-0 after:left-1 after:right-1 after:h-0.5 after:bg-primary after:rounded-full",
+                ? "bg-primary text-primary-foreground ring-2 ring-primary scale-[1.02] z-10 rounded-[5px]"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             <LayoutList size={14} />
