@@ -118,10 +118,10 @@ export function DraftBoard({ players, onToggleDrafted }: DraftBoardProps) {
           <button
             onClick={() => setView("position")}
             className={cn(
-              "px-3 py-2 text-sm flex items-center gap-1.5 transition-all font-bold",
+              "px-3 py-2 text-sm flex items-center gap-1.5 transition-all duration-150",
               view === "position"
-                ? "bg-primary text-primary-foreground ring-2 ring-primary scale-[1.02] z-10 rounded-[5px]"
-                : "text-muted-foreground hover:text-foreground",
+                ? "bg-primary text-primary-foreground ring-2 ring-primary scale-[1.02] z-10 shadow-sm rounded-[5px]"
+                : "bg-background text-secondary-foreground hover:bg-secondary/80",
             )}
           >
             <LayoutGrid size={14} />
@@ -130,10 +130,10 @@ export function DraftBoard({ players, onToggleDrafted }: DraftBoardProps) {
           <button
             onClick={() => setView("value")}
             className={cn(
-              "px-3 py-2 text-sm flex items-center gap-1.5 transition-all font-bold",
+              "px-3 py-2 text-sm flex items-center gap-1.5 transition-all duration-150",
               view === "value"
-                ? "bg-primary text-primary-foreground ring-2 ring-primary scale-[1.02] z-10 rounded-[5px]"
-                : "text-muted-foreground hover:text-foreground",
+                ? "bg-primary text-primary-foreground ring-2 ring-primary scale-[1.02] z-10 shadow-sm rounded-[5px]"
+                : "bg-background text-secondary-foreground hover:bg-secondary/80",
             )}
           >
             <LayoutList size={14} />
