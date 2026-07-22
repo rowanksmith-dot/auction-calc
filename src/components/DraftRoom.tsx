@@ -469,51 +469,73 @@ export function DraftRoom({
 
               {/* Roster slots */}
               <div className="p-1.5 space-y-0.5 min-h-[40px]">
-                {settings.rosterSlots
-                  .sort((a, b) => {
-                    // BENCH always last
-                    if (a.type === "BENCH" && b.type !== "BENCH") return 1;
-                    if (b.type === "BENCH" && a.type !== "BENCH") return -1;
-                    // FLEX before SUPERFLEX
-                    if (a.type === "FLEX" && b.type === "SUPERFLEX") return -1;
-                    if (b.type === "FLEX" && a.type === "SUPERFLEX") return 1;
-                    return 0;
-                  })
-                  .filter((s) => !(s.type === "BENCH" && collapsed))
-                  .map((slot) => {
-                    const posPlayers = team.players.filter((p) => {
-                      if (slot.type === "FLEX") return ["RB", "WR", "TE"].includes(p.position);
-                      if (slot.type === "SUPERFLEX") return ["QB", "RB", "WR", "TE"].includes(p.position);
-                      return p.position === slot.type;
-                    });
+                {(() => {
+                  // Build slot-by-slot player placement, filling position slots first,
+                  // then FLEX, then SUPERFLEX, then BENCH.
+                  const placed = new Set<number>();
 
-                    return Array.from({ length: slot.count }, (_, s) => {
-                      const player = posPlayers[s];
-                      if (player) {
-                        const pc = POS_COLORS[player.position] ?? POS_COLORS.WR;
-                        const indicator = valueIndicator(player.winningBid ?? 0, player.auctionValue, thresholds.bargain, thresholds.overpay);
-                        const pIdx = team.players.indexOf(player);
-                        return (
-                          <div key={`${slot.type}-${s}-filled`} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border", pc.bg, pc.border)}>
-                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                              <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{slot.type === "FLEX" ? "FX" : slot.type === "SUPERFLEX" ? "SF" : slot.type}</span>
-                              <span className="truncate text-foreground text-[10px]">{player.name}</span>
-                            </div>
-                            <div className="flex items-center gap-0.5 shrink-0">
-                              <span className={cn("font-mono tabular-nums text-[10px]", indicator.color)}>{formatCurrency(player.winningBid ?? 0)}</span>
-                              <button onClick={(e) => { e.stopPropagation(); editWinningBid(i, pIdx); }} className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" title="Edit bid"><Edit3 size={8} /></button>
-                            </div>
-                          </div>
-                        );
+                  const slotOrder = settings.rosterSlots
+                    .sort((a, b) => {
+                      if (a.type === "BENCH" && b.type !== "BENCH") return 1;
+                      if (b.type === "BENCH" && a.type !== "BENCH") return -1;
+                      if (a.type === "FLEX" && b.type === "SUPERFLEX") return -1;
+                      if (b.type === "FLEX" && a.type === "SUPERFLEX") return 1;
+                      return 0;
+                    })
+                    .filter((s) => !(s.type === "BENCH" && collapsed));
+
+                  const slotResults: { type: RosterSlotType; slotIdx: number; player: PlayerWithValue | null }[] = [];
+
+                  for (const slot of slotOrder) {
+                    for (let s = 0; s < slot.count; s++) {
+                      const pool = team.players.filter((p) => !placed.has(p.id));
+                      let candidate: PlayerWithValue | null = null;
+
+                      if (slot.type === "BENCH") {
+                        // Take any unplaced player
+                        candidate = pool[0] ?? null;
+                      } else if (slot.type === "SUPERFLEX") {
+                        // Take any unplaced QB/RB/WR/TE
+                        candidate = pool.find((p) => ["QB", "RB", "WR", "TE"].includes(p.position)) ?? null;
+                      } else if (slot.type === "FLEX") {
+                        // Take any unplaced RB/WR/TE
+                        candidate = pool.find((p) => ["RB", "WR", "TE"].includes(p.position)) ?? null;
+                      } else {
+                        // Position-specific slot
+                        candidate = pool.find((p) => p.position === slot.type) ?? null;
                       }
-                      const pc = POS_COLORS[slot.type as string] ?? { bg: "bg-muted/30", text: "text-muted-foreground", border: "border-border/50" };
+
+                      if (candidate) placed.add(candidate.id);
+                      slotResults.push({ type: slot.type, slotIdx: s, player: candidate });
+                    }
+                  }
+
+                  return slotResults.map(({ type, slotIdx, player }) => {
+                    if (player) {
+                      const pc = POS_COLORS[player.position] ?? POS_COLORS.WR;
+                      const indicator = valueIndicator(player.winningBid ?? 0, player.auctionValue, thresholds.bargain, thresholds.overpay);
+                      const pIdx = team.players.indexOf(player);
                       return (
-                        <div key={`${slot.type}-${s}-empty`} className={cn("flex items-center px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed", pc.border)}>
-                          <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{slot.type === "FLEX" ? "FX" : slot.type === "SUPERFLEX" ? "SF" : slot.type}</span>
+                        <div key={`${type}-${slotIdx}-filled`} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border", pc.bg, pc.border)}>
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{type === "FLEX" ? "FX" : type === "SUPERFLEX" ? "SF" : type}</span>
+                            <span className="truncate text-foreground text-[10px]">{player.name}</span>
+                          </div>
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            <span className={cn("font-mono tabular-nums text-[10px]", indicator.color)}>{formatCurrency(player.winningBid ?? 0)}</span>
+                            <button onClick={(e) => { e.stopPropagation(); editWinningBid(i, pIdx); }} className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground" title="Edit bid"><Edit3 size={8} /></button>
+                          </div>
                         </div>
                       );
-                    });
-                  })}
+                    }
+                    const pc = POS_COLORS[type as string] ?? { bg: "bg-muted/30", text: "text-muted-foreground", border: "border-border/50" };
+                    return (
+                      <div key={`${type}-${slotIdx}-empty`} className={cn("flex items-center px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed", pc.border)}>
+                        <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{type === "FLEX" ? "FX" : type === "SUPERFLEX" ? "SF" : type}</span>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
 
             </button>
