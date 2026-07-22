@@ -37,6 +37,13 @@ body {
   font-family: system-ui, -apple-system, sans-serif;
 }
 
+button,
+[type="button"],
+[type="reset"],
+[type="submit"] {
+  cursor: pointer;
+}
+
 /* Tabulator overrides for sticky headers */
 .tabulator {
   border: none !important;
