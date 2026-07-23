@@ -142,61 +142,70 @@ export default function Home() {
 
   const prevFetchKeyRef = useRef<string | null>(null);
 
+  // ── LocalStorage cache for player data ──
+  const CACHE_KEY = "auction-calc-player-cache";
+
+  function loadCachedPlayers(): DataState | null {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw) as DataState;
+      if (!data.raw || !data.metadata || data.raw.length === 0) return null;
+      return data;
+    } catch {
+      return null;
+    }
+  }
+
+  function saveCachedPlayers(data: DataState): void {
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+    } catch {
+      // localStorage full or unavailable — silently ignore
+    }
+  }
+
+  // ── Data fetch: runs once per unique fetchKey ──
   useEffect(() => {
     const key = fetchKey;
     if (key === prevFetchKeyRef.current) return;
     prevFetchKeyRef.current = key;
 
-    // Check cache first
-    const cached = fetchCacheRef.current.get(key);
-    if (cached && Date.now() - cached.ts < 60000) {
-      setDataState(cached.data);
-      setLastRefresh(cached.data.metadata.timestamp);
-      setDataSource(cached.data.metadata.source);
+    let cancelled = false;
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+
+    // 1. Try localStorage cache first (last successful API response)
+    const cached = loadCachedPlayers();
+    if (cached) {
+      setDataState(cached);
+      setLastRefresh(cached.metadata.timestamp);
+      setDataSource("fallback");
       setLoading(false);
-      setFetchStats((prev) => ({
-        ...prev,
-        lastUrl: `${window.location.origin}/api/values?${key}`,
-        lastSize: cached.data.raw.length,
-        cacheHit: true,
-        timestamp: new Date().toISOString(),
-        reason: "Cache hit — fetch key unchanged",
-      }));
-      return;
+      setError(null);
+    } else {
+      // 2. No cache — show bundled fallback immediately
+      const fallbackRaw = mergePlayers(
+        loadLocalFallback().players,
+        loadLocalFallback().values,
+      );
+      const fallbackData: DataState = {
+        raw: fallbackRaw,
+        metadata: { timestamp: new Date().toISOString(), source: "fallback" },
+      };
+      setDataState(fallbackData);
+      setLastRefresh(new Date().toISOString());
+      setDataSource("fallback");
+      setLoading(false);
+      setError(null);
     }
 
-    // Load fallback data immediately — this is synchronous (imported JSON)
-    // so the page always shows players without waiting for the API proxy
-    const fallbackResult = loadLocalFallback();
-    const fallbackRaw = mergePlayers(fallbackResult.players, fallbackResult.values);
-    const fallbackData: DataState = {
-      raw: fallbackRaw,
-      metadata: { timestamp: new Date().toISOString(), source: "fallback" },
-    };
-    fetchCacheRef.current.set(key, { data: fallbackData, ts: Date.now() });
-    setDataState(fallbackData);
-    setLastRefresh(new Date().toISOString());
-    setDataSource("fallback");
-    setLoading(false);
-    setError(null);
-    setFetchStats((prev) => ({
-      count: prev.count + 1,
-      lastUrl: "(fallback)",
-      lastSize: fallbackRaw.length,
-      cacheHit: false,
-      timestamp: new Date().toISOString(),
-      reason: `Settings changed: ${key}`,
-    }));
+    // 3. Upgrade to live API data in background
+    const ctrl = new AbortController();
+    abortControllerRef.current = ctrl;
 
-    // Fire-and-forget API fetch to upgrade to live data later
-    let cancelled = false;
-    const bgController = new AbortController();
-    abortControllerRef.current = bgController;
-
-    (async () => {
-      try {
-        const apiResult = await getFantasyCalcData(settings, bgController.signal);
-        if (cancelled || bgController.signal.aborted) return;
+    getFantasyCalcData(settings, ctrl.signal)
+      .then((apiResult) => {
+        if (cancelled || ctrl.signal.aborted) return;
         const raw = mergePlayers(apiResult.players, apiResult.values);
         if (raw.length === 0) return;
         const data: DataState = {
@@ -204,18 +213,17 @@ export default function Home() {
           metadata: { timestamp: apiResult.timestamp, source: apiResult.source },
         };
         fetchCacheRef.current.set(key, { data, ts: Date.now() });
+        saveCachedPlayers(data); // ← save to localStorage so next load is instant
         setDataState(data);
         setLastRefresh(apiResult.timestamp);
         setDataSource(apiResult.source);
         setError(null);
-      } catch {
-        // Background fetch failed — fallback is already on screen
-      }
-    })();
+      })
+      .catch(() => {});
 
     return () => {
       cancelled = true;
-      if (abortControllerRef.current) abortControllerRef.current.abort();
+      abortControllerRef.current?.abort();
     };
   }, [fetchKey, settings]);
 
