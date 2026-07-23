@@ -379,7 +379,6 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
               <SortHeader label="Pos Rank" sortKey="positionRank" />
               <SortHeader label="Tier" sortKey="tier" />
               <SortHeader label="30-Day" sortKey="trend30" />
-              {!compact && <th className="px-3 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -448,28 +447,6 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
                 <td className="px-3 py-2.5">
                   <TrendBadge value={p.trend30} />
                 </td>
-                {!compact && (
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-2">
-                      {p.drafted && onToggleDrafted && (
-                        <button
-                          onClick={() => onToggleDrafted(p.id)}
-                          className="text-xs text-red-500 hover:text-red-600"
-                        >
-                          Undo
-                        </button>
-                      )}
-                      {!p.drafted && onToggleDrafted && (
-                        <button
-                          onClick={() => onToggleDrafted(p.id)}
-                          className="text-xs text-primary hover:text-primary/80"
-                        >
-                          Draft
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                )}
               </tr>
             ))}
           </tbody>
