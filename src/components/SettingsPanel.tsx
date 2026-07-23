@@ -40,7 +40,7 @@ function PillButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150",
+        "px-3 py-1.5 rounded-lg text-base font-medium transition-all duration-150",
         selected
           ? "bg-primary text-primary-foreground ring-2 ring-primary/30 shadow-sm"
           : "bg-secondary text-secondary-foreground hover:bg-secondary/80 hover:ring-1 hover:ring-border",
@@ -154,16 +154,20 @@ export function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
               <label className="block text-sm font-semibold mb-1.5">
                 League Format
               </label>
-              <select
-                value={settings.format}
-                onChange={(e) =>
-                  update("format", e.target.value as "redraft" | "dynasty")
-                }
-                className="w-full rounded-lg border-2 border-border bg-background px-3 py-2 text-sm transition-all duration-150 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary"
-              >
-                <option value="redraft">Redraft</option>
-                <option value="dynasty">Dynasty Startup</option>
-              </select>
+              <div className="flex gap-1.5">
+                <PillButton
+                  selected={settings.format === "redraft"}
+                  onClick={() => update("format", "redraft")}
+                >
+                  Redraft
+                </PillButton>
+                <PillButton
+                  selected={settings.format === "dynasty"}
+                  onClick={() => update("format", "dynasty")}
+                >
+                  Dynasty
+                </PillButton>
+              </div>
             </div>
 
             <div>
