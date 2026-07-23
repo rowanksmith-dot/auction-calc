@@ -7,8 +7,6 @@ import {
   ChevronDown,
   ArrowUpDown,
   Download,
-  Eye,
-  EyeOff,
   Star,
   Printer,
   FilterX,
@@ -350,19 +348,6 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
         )}
 
         <button
-          onClick={() => setShowDrafted(!showDrafted)}
-          className={cn(
-            "flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm transition-colors",
-            showDrafted
-              ? "bg-secondary text-secondary-foreground"
-              : "bg-primary/10 text-primary",
-          )}
-        >
-          {showDrafted ? <EyeOff size={14} /> : <Eye size={14} />}
-          {showDrafted ? "Showing All" : "Hide Drafted"}
-        </button>
-
-        <button
           onClick={exportCSV}
           className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
         >
@@ -491,9 +476,6 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
         </table>
       </div>
 
-      <div className="text-xs text-muted-foreground text-right">
-        Showing {filtered.length} of {players.length} players
-      </div>
     </div>
   );
 }

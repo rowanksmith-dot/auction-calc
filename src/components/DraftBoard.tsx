@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Search, LayoutList, LayoutGrid, Eye, EyeOff } from "lucide-react";
+import { Search, LayoutList, LayoutGrid } from "lucide-react";
 import { cn, formatCurrency, positionColor, positionBgColor } from "@/lib/utils";
 import type { PlayerWithValue } from "@/lib/types";
 
@@ -141,16 +141,6 @@ export function DraftBoard({ players, onToggleDrafted }: DraftBoardProps) {
           </button>
         </div>
 
-        <button
-          onClick={() => setHideDrafted(!hideDrafted)}
-          className={cn(
-            "flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm transition-colors",
-            hideDrafted ? "bg-primary/10 text-primary" : "bg-secondary text-secondary-foreground",
-          )}
-        >
-          {hideDrafted ? <EyeOff size={14} /> : <Eye size={14} />}
-          {hideDrafted ? "Hidden" : "All"}
-        </button>
       </div>
 
       {/* Board */}
