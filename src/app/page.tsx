@@ -126,6 +126,8 @@ export default function Home() {
   // ── Fetch cache ──
   const fetchCacheRef = useRef<Map<string, { data: DataState; ts: number }>>(new Map());
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [restored, setRestored] = useState(false);
   const [fetchStats, setFetchStats] = useState<{
     count: number;
     lastUrl: string;
@@ -305,10 +307,12 @@ export default function Home() {
 
   function handleSaveSettings(next: LeagueSettings) {
     setSettings(next);
+    setRestored(false);
   }
 
-  function handleResetDefaults() {
+  function handleRestoreDefaults() {
     resetAllState();
+    setRestored(true);
   }
 
   function handleUpdatePlayers(updated: PlayerWithValue[]) {
@@ -356,6 +360,8 @@ export default function Home() {
 
   function copyShareUrl() {
     navigator.clipboard.writeText(buildShareUrl());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   // ── Derived ──
@@ -558,14 +564,14 @@ export default function Home() {
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
           >
             <ExternalLink size={14} />
-            Copy Share URL
+            {copied ? "Copied!" : "Copy Share URL"}
           </button>
 
           <button
-            onClick={handleResetDefaults}
+            onClick={handleRestoreDefaults}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
           >
-            Reset Defaults
+            {restored ? "Restored!" : "Restore Defaults"}
           </button>
 
           <div className="flex-1" />
