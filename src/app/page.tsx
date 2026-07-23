@@ -14,7 +14,6 @@ import {
   AlertTriangle,
   Clock,
   Bug,
-  Upload,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import type { LeagueSettings, PlayerWithValue } from "@/lib/types";
@@ -28,7 +27,6 @@ import { PlayerTable } from "@/components/PlayerTable";
 import { DraftBoard } from "@/components/DraftBoard";
 import { DraftRoom } from "@/components/DraftRoom";
 import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
-import { SleeperImport } from "@/components/SleeperImport";
 
 type ViewMode = "list" | "board" | "draft";
 
@@ -130,7 +128,7 @@ export default function Home() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const [copied, setCopied] = useState(false);
   const [restored, setRestored] = useState(false);
-  const [showImport, setShowImport] = useState(false);
+  // Sleeper import moved into DraftRoom
   const [fetchStats, setFetchStats] = useState<{
     count: number;
     lastUrl: string;
@@ -503,30 +501,7 @@ export default function Home() {
         {/* Settings panel */}
         <SettingsPanel settings={settings} onChange={handleSaveSettings} />
 
-        {/* Sleeper Import toggle */}
-        <div>
-          <button
-            onClick={() => setShowImport(!showImport)}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-all w-full",
-              showImport
-                ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300"
-                : "bg-card border-border text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <Upload size={16} />
-            <span>Sleeper Auction Import</span>
-            <span className="text-xs text-muted-foreground ml-auto">
-              Import actual draft prices for comparison
-            </span>
-          </button>
 
-          {showImport && (
-            <div className="mt-3">
-              <SleeperImport />
-            </div>
-          )}
-        </div>
 
         {/* Action bar */}
         <div className="flex flex-wrap items-center gap-3">
