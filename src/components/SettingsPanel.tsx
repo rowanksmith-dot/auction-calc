@@ -366,8 +366,8 @@ export function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
 
           {/* Roster Configuration */}
           <div>
-            <div className="flex items-center gap-2 mb-3">
-              <label className="text-base font-semibold underline underline-offset-2 decoration-1">Roster Configuration</label>
+            <div className="flex items-center gap-2 mb-1.5">
+              <label className="block text-base font-semibold underline underline-offset-2 decoration-1">Roster Configuration</label>
               <span className="text-xs text-muted-foreground">
                 ({totalRoster} total spots)
               </span>
