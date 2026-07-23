@@ -44,7 +44,7 @@ interface RawPlayer {
 
 interface DataState {
   raw: RawPlayer[];
-  metadata: { timestamp: string; source: "api" | "fallback" };
+  metadata: { timestamp: string; source: "api" | "fallback" | "cached" };
 }
 
 // ── Merge players + values ──
@@ -121,7 +121,7 @@ export default function Home() {
   const [calculating, setCalculating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
-  const [dataSource, setDataSource] = useState<"api" | "fallback">("fallback");
+  const [dataSource, setDataSource] = useState<"api" | "fallback" | "cached">("fallback");
 
   // ── Fetch cache ──
   const fetchCacheRef = useRef<Map<string, { data: DataState; ts: number }>>(new Map());
@@ -179,7 +179,7 @@ export default function Home() {
     if (cached) {
       setDataState(cached);
       setLastRefresh(cached.metadata.timestamp);
-      setDataSource("fallback");
+      setDataSource("cached");
       setLoading(false);
       setError(null);
     } else {
@@ -466,6 +466,11 @@ export default function Home() {
               {dataSource === "fallback" && (
                 <span className="inline-flex items-center gap-1 ml-2 text-amber-600 dark:text-amber-400">
                   · Using local fallback data (API unavailable)
+                </span>
+              )}
+              {dataSource === "cached" && (
+                <span className="inline-flex items-center gap-1 ml-2 text-blue-500 dark:text-blue-400">
+                  · Using cached data (refreshing…)
                 </span>
               )}
             </p>

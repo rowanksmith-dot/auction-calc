@@ -5,7 +5,7 @@ import type { LeagueSettings } from "@/lib/types";
 
 interface DiagnosticsPanelProps {
   settings: LeagueSettings;
-  dataSource: "api" | "fallback";
+  dataSource: "api" | "fallback" | "cached";
   lastRefresh: string | null;
   rawDataCount: number;
   playerCount: number;
