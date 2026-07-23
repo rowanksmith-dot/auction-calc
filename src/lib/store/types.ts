@@ -106,3 +106,48 @@ export interface PlayerWithDraftInfo {
   winningBid: number | null;
   draftedBy: string | null;
 }
+
+// ── Sleeper Import Types ──
+
+export interface SleeperPurchase {
+  sleeperPlayerId: string;
+  fullName: string;
+  position: string;
+  team: string;
+  auctionPrice: number;
+  rosterId: number;
+  pickedBy: string;
+  pickNo: number;
+  round: number;
+  matchedFcPlayerId?: number;
+  matchedFcValue?: number;
+  priceDelta?: number;
+  priceDeltaPercent?: number;
+}
+
+export interface SleeperTeam {
+  rosterId: number;
+  ownerUserId: string;
+  teamName: string;
+  displayName: string;
+  budget: number;
+  spent: number;
+  remaining: number;
+  purchases: SleeperPurchase[];
+}
+
+export interface SleeperImportResult {
+  draftId: string;
+  leagueName: string;
+  season: string;
+  status: string;
+  budget: number;
+  numTeams: number;
+  totalPicks: number;
+  teams: Record<number, SleeperTeam>;
+}
+
+export interface SleeperStoreEntry {
+  result: SleeperImportResult;
+  loaded: boolean;
+}

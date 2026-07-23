@@ -8,6 +8,7 @@ import {
   Download,
   Upload,
   Edit3,
+  Database,
 } from "lucide-react";
 import { cn, formatCurrency, valueIndicator } from "@/lib/utils";
 import type { PlayerWithValue, LeagueSettings, RosterSlotType } from "@/lib/types";
@@ -15,6 +16,8 @@ import { validateTeamName } from "@/lib/validation/settings";
 import { useAppStore } from "@/lib/store/store";
 import { replayAuctionActions } from "@/lib/store/replay-reducer";
 import type { TeamState } from "@/lib/store/types";
+import { SleeperImport } from "@/components/SleeperImport";
+import type { SleeperImportData } from "@/components/SleeperImport";
 
 interface Team {
   name: string;
@@ -60,6 +63,8 @@ export function DraftRoom({
   const [selectedTeam, setSelectedTeam] = useState<number>(0);
   const [showSetup, setShowSetup] = useState(storeTeamNames.length === 0);
   const [showThresholdConfig, setShowThresholdConfig] = useState(false);
+  const [showSleeperImport, setShowSleeperImport] = useState(false);
+  const [sleeperData, setSleeperData] = useState<SleeperImportData | null>(null);
   const [collapsed, setCollapsed] = useState(true);
   const [teamNameInputs, setTeamNameInputs] = useState<string[]>(
     storeTeamNames.length > 0
@@ -322,13 +327,49 @@ export function DraftRoom({
   const thresholds = storeThresholds;
   const draftActionCount = storeActions.length;
 
-  if (showSetup) {
+  if (showSetup && !sleeperData) {
     return (
       <div className="bg-card border border-border rounded-xl p-6">
         <div className="flex items-center gap-2 mb-4">
           <Users size={20} className="text-primary" />
           <h2 className="text-lg font-semibold">Draft Room Setup</h2>
         </div>
+
+        {/* Sleeper Import Section */}
+        {showSleeperImport ? (
+          <div className="mb-4 pb-4 border-b border-border">
+            <h3 className="text-sm font-medium mb-2">Import from Sleeper</h3>
+            <SleeperImport
+              onImport={(data) => {
+                setSleeperData(data);
+                setShowSleeperImport(false);
+              }}
+              onCancel={() => setShowSleeperImport(false)}
+            />
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowSleeperImport(true)}
+            className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-border text-sm text-muted-foreground hover:text-foreground hover:border-primary/50 transition-all mb-4"
+          >
+            <Database size={16} />
+            <span>Sleeper Auction Import</span>
+            <span className="text-xs text-muted-foreground ml-auto">
+              Import real draft prices
+            </span>
+          </button>
+        )}
+
+        {/* OR divider */}
+        <div className="relative mb-4">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-border" />
+          </div>
+          <div className="relative flex justify-center">
+            <span className="bg-card px-2 text-xs text-muted-foreground">OR</span>
+          </div>
+        </div>
+
         <p className="text-sm text-muted-foreground mb-4">
           Enter team names ({settings.numTeams} teams, ${settings.budget} budget each)
         </p>
@@ -354,6 +395,113 @@ export function DraftRoom({
         >
           Start Draft
         </button>
+      </div>
+    );
+  }
+
+  // ── Sleeper view ──
+  if (sleeperData) {
+    const sleeperTeams = Object.values(sleeperData.teams)
+      .sort((a, b) => a.rosterId - b.rosterId)
+      .map((t, i) => ({
+        name: t.teamName,
+        budget: sleeperData.budget,
+        spent: t.spent,
+        players: t.purchases
+          .filter((p) => !p.fullName.startsWith("No "))
+          .map((p) => ({
+            id: -(parseInt(p.sleeperPlayerId) || (100000 + i)),
+            name: p.fullName,
+            team: p.team,
+            position: p.position as "QB" | "RB" | "WR" | "TE",
+            age: 25,
+            sourceValue: 0,
+            scaledValue: p.auctionPrice,
+            auctionValue: p.auctionPrice,
+            positionRank: 0,
+            overallRank: 0,
+            tier: 0,
+            drafted: true,
+            winningBid: p.auctionPrice,
+            draftedBy: t.teamName,
+            trend30: null,
+          })),
+      }));
+
+    return (
+      <div className="space-y-4">
+        {/* Sleeper header bar */}
+        <div className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Database size={16} className="text-primary" />
+              <span className="font-semibold text-sm">{sleeperData.leagueName}</span>
+              <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-medium",
+                sleeperData.status === "complete"
+                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                  : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400")}>
+                {sleeperData.status}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              ${sleeperData.budget.toLocaleString()} budget · {sleeperData.numTeams} teams · {sleeperData.totalPicks} picks
+            </p>
+          </div>
+          <button
+            onClick={() => { setSleeperData(null); setShowSetup(true); }}
+            className="text-xs text-muted-foreground hover:text-foreground underline"
+          >
+            Close
+          </button>
+        </div>
+
+        {/* Team cards row */}
+        <div className="flex gap-2 overflow-x-auto pb-2">
+          {sleeperTeams.map((team, i) => {
+            const isSelected = selectedTeam === i;
+            const rem = team.budget - team.spent;
+            return (
+              <div key={i}
+                className={cn(
+                  "flex flex-col rounded-xl border transition-all shrink-0",
+                  "w-[170px]",
+                  isSelected
+                    ? "border-primary bg-primary/5 ring-2 ring-primary/30 shadow-sm"
+                    : "border-border bg-card",
+                )}
+              >
+                <div className="px-3 pt-2.5 pb-2 border-b border-border/50">
+                  <div className={cn("text-sm truncate", isSelected && "font-bold")}>{team.name}</div>
+                  <div className={cn("text-lg tabular-nums mt-0.5", isSelected ? "font-extrabold" : "font-bold")}>
+                    {formatCurrency(rem)}
+                  </div>
+                </div>
+                <div className="p-1.5 space-y-0.5 min-h-[40px]">
+                  {team.players.map((p) => {
+                    const pc = POS_COLORS[p.position] ?? POS_COLORS.WR;
+                    const indicator = valueIndicator(p.winningBid ?? 0, p.auctionValue, thresholds.bargain, thresholds.overpay);
+                    return (
+                      <div key={p.id} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border", pc.bg, pc.border)}>
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                          <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{p.position}</span>
+                          <span className="truncate text-foreground text-[10px]">{p.name}</span>
+                        </div>
+                        <span className={cn("font-mono tabular-nums text-[10px]", indicator.color)}>{formatCurrency(p.winningBid ?? 0)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Summary */}
+        <div className="text-xs text-muted-foreground text-center">
+          {sleeperTeams.reduce((s, t) => s + t.players.length, 0)} players ·
+          ${sleeperTeams.reduce((s, t) => s + t.spent, 0).toLocaleString()} total spent ·
+          ${sleeperTeams.reduce((s, t) => s + (t.budget - t.spent), 0).toLocaleString()} remaining
+        </div>
       </div>
     );
   }
