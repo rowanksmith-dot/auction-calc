@@ -151,7 +151,7 @@ export function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
           {/* Format & Size Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-base font-semibold mb-1.5">
+              <label className="block text-base font-semibold underline underline-offset-2 decoration-1 mb-1.5">
                 League Format
               </label>
               <div className="flex gap-1.5">
@@ -171,7 +171,7 @@ export function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
             </div>
 
             <div>
-              <label className="block text-base font-semibold mb-1.5">
+              <label className="block text-base font-semibold underline underline-offset-2 decoration-1 mb-1.5">
                 Number of Teams
               </label>
               <div className="flex gap-1.5 flex-wrap items-center">
@@ -202,7 +202,7 @@ export function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
           {/* Scoring Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-base font-semibold mb-1.5">
+              <label className="block text-base font-semibold underline underline-offset-2 decoration-1 mb-1.5">
                 Scoring
               </label>
               <div className="flex gap-1.5">
@@ -228,7 +228,7 @@ export function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
             </div>
 
             <div>
-              <label className="block text-base font-semibold mb-1.5">
+              <label className="block text-base font-semibold underline underline-offset-2 decoration-1 mb-1.5">
                 QB Format
               </label>
               <div className="flex gap-1.5">
@@ -250,7 +250,7 @@ export function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
 
           {/* TE Premium */}
           <div>
-            <label className="block text-base font-semibold mb-1.5">
+            <label className="block text-base font-semibold underline underline-offset-2 decoration-1 mb-1.5">
               TE Premium
             </label>
             <div className="flex gap-1.5 flex-wrap items-center">
@@ -308,7 +308,7 @@ export function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
           {/* Budget Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-base font-semibold mb-1.5">
+              <label className="block text-base font-semibold underline underline-offset-2 decoration-1 mb-1.5">
                 Budget Per Team ($)
               </label>
               <div className="flex gap-1.5 flex-wrap items-center">
@@ -336,7 +336,7 @@ export function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
             </div>
 
             <div>
-              <label className="block text-base font-semibold mb-1.5">
+              <label className="block text-base font-semibold underline underline-offset-2 decoration-1 mb-1.5">
                 Minimum Bid ($)
               </label>
               <div className="flex gap-1.5 flex-wrap items-center">
@@ -367,7 +367,7 @@ export function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
           {/* Roster Configuration */}
           <div>
             <div className="flex items-center gap-2 mb-3">
-              <label className="text-sm font-medium">Roster Configuration</label>
+              <label className="text-base font-semibold underline underline-offset-2 decoration-1">Roster Configuration</label>
               <span className="text-xs text-muted-foreground">
                 ({totalRoster} total spots)
               </span>
@@ -439,7 +439,7 @@ export function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
             {showAdvanced && (
               <div className="mt-3 space-y-4">
                 <div>
-                  <label className="block text-base font-semibold mb-1.5">
+                  <label className="block text-base font-semibold underline underline-offset-2 decoration-1 mb-1.5">
                     Auction Value Curve (Exponent)
                   </label>
                   <div className="flex items-center gap-3">
