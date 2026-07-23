@@ -237,8 +237,9 @@ export function mergePlayersWithValues(
 
 /**
  * Load the local fallback dataset.
+ * Exported so page.tsx can show fallback immediately without waiting for the API.
  */
-function loadLocalFallback(): {
+export function loadLocalFallback(): {
   players: FantasyCalcApiPlayer[];
   values: FantasyCalcValueRecord[];
 } {

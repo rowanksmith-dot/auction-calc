@@ -19,7 +19,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import type { LeagueSettings, PlayerWithValue } from "@/lib/types";
 import { DEFAULT_SETTINGS } from "@/lib/types";
 import { calculateAuctionValues } from "@/lib/auction-model/calculator";
-import { getFantasyCalcData, clearDataCache } from "@/lib/fantasycalc/adapter";
+import { getFantasyCalcData, loadLocalFallback, clearDataCache } from "@/lib/fantasycalc/adapter";
 import { useAppStore } from "@/lib/store/store";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SettingsPanel } from "@/components/SettingsPanel";
@@ -165,48 +165,99 @@ export default function Home() {
       return;
     }
 
-    let cancelled = false;
-    const doFetch = async () => {
-      setLoading(true);
-      setError(null);
-
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-
-      try {
-        const result = await getFantasyCalcData(settings, controller.signal);
-        if (cancelled || controller.signal.aborted) return;
-        const raw = mergePlayers(result.players, result.values);
-        const data: DataState = { raw, metadata: { timestamp: result.timestamp, source: result.source } };
-        fetchCacheRef.current.set(key, { data, ts: Date.now() });
-        setFetchStats((prev) => ({
-          count: prev.count + 1,
-          lastUrl: result.source === "fallback" ? "(fallback)" : `${window.location.origin}/api/values?${key}`,
-          lastSize: raw.length,
-          cacheHit: false,
-          timestamp: new Date().toISOString(),
-          reason: `Settings changed: ${key}`,
-        }));
-        setDataState(data);
-        setLastRefresh(result.timestamp);
-        setDataSource(result.source);
-      } catch (e: unknown) {
-        if (!cancelled && !(e instanceof DOMException && e.name === "AbortError")) {
-          setError(e instanceof Error ? e.message : "Failed to load player data");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+    // Load fallback data immediately — this is synchronous (imported JSON)
+    // so the page always shows players without waiting for the API proxy
+    const fallbackResult = loadLocalFallback();
+    const fallbackRaw = mergePlayers(fallbackResult.players, fallbackResult.values);
+    const fallbackData: DataState = {
+      raw: fallbackRaw,
+      metadata: { timestamp: new Date().toISOString(), source: "fallback" },
     };
-    doFetch();
+    fetchCacheRef.current.set(key, { data: fallbackData, ts: Date.now() });
+    setDataState(fallbackData);
+    setLastRefresh(new Date().toISOString());
+    setDataSource("fallback");
+    setLoading(false);
+    setError(null);
+    setFetchStats((prev) => ({
+      count: prev.count + 1,
+      lastUrl: "(fallback)",
+      lastSize: fallbackRaw.length,
+      cacheHit: false,
+      timestamp: new Date().toISOString(),
+      reason: `Settings changed: ${key}`,
+    }));
+
+    // Fire-and-forget API fetch to upgrade to live data later
+    let cancelled = false;
+    const bgController = new AbortController();
+    abortControllerRef.current = bgController;
+
+    (async () => {
+      try {
+        const apiResult = await getFantasyCalcData(settings, bgController.signal);
+        if (cancelled || bgController.signal.aborted) return;
+        const raw = mergePlayers(apiResult.players, apiResult.values);
+        if (raw.length === 0) return;
+        const data: DataState = {
+          raw,
+          metadata: { timestamp: apiResult.timestamp, source: apiResult.source },
+        };
+        fetchCacheRef.current.set(key, { data, ts: Date.now() });
+        setDataState(data);
+        setLastRefresh(apiResult.timestamp);
+        setDataSource(apiResult.source);
+        setError(null);
+      } catch {
+        // Background fetch failed — fallback is already on screen
+      }
+    })();
+
     return () => {
       cancelled = true;
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
   }, [fetchKey, settings]);
+
+  // ── Recalculate Prices (freeze drafted players, recompute undrafted with remaining budget) ──
+  function handleRecalculate(frozenDrafted: Set<number>) {
+    if (!dataState) return;
+
+    // Calculate actual money spent on drafted players (using winningBid, not projected value)
+    const actualSpentSoFar = allPlayers
+      .filter((p) => frozenDrafted.has(p.id))
+      .reduce((sum, p) => sum + (p.winningBid ?? p.auctionValue), 0);
+
+    // Total league budget minus what's been spent = remaining budget for undrafted players
+    const totalBudget = settings.numTeams * settings.budget;
+    const remainingBudget = Math.max(0, totalBudget - actualSpentSoFar);
+
+    setCalculating(true);
+    requestAnimationFrame(() => {
+      try {
+        const result = calculateAuctionValues({
+          players: dataState.raw.filter((p) => !frozenDrafted.has(p.id)),
+          settings: {
+            ...settings,
+            budget: Math.round(remainingBudget / settings.numTeams),
+          },
+        });
+        // Merge frozen drafted state with new undrafted values
+        const merged = allPlayers.map((p) => {
+          if (frozenDrafted.has(p.id)) {
+            return { ...p, drafted: true };
+          }
+          const recalculated = result.players.find((rp) => rp.id === p.id);
+          return recalculated ? { ...recalculated, drafted: false } : { ...p, drafted: false };
+        });
+        setAllPlayers(merged);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Recalculation failed");
+      } finally {
+        setCalculating(false);
+      }
+    });
+  }
 
   // ── Recalculate auction values ──
   const calcKey = useMemo(() => {
@@ -309,7 +360,7 @@ export default function Home() {
     return `${settings.numTeams} teams · ${scoringLabel} · ${qbLabel} · $${settings.budget} budget · ${rosterCount} roster spots`;
   }, [settings]);
 
-  const actualSpent = allPlayers.filter((p) => p.drafted).reduce((sum, p) => sum + p.auctionValue, 0);
+  const actualSpent = allPlayers.filter((p) => p.drafted).reduce((sum, p) => sum + (p.winningBid ?? p.auctionValue), 0);
   const totalBudget = settings.numTeams * settings.budget;
 
   // ── Render ──
@@ -578,6 +629,7 @@ export default function Home() {
             players={allPlayers}
             settings={settings}
             onUpdatePlayers={handleUpdatePlayers}
+            onRecalculate={handleRecalculate}
           />
         )}
 

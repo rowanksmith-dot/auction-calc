@@ -384,14 +384,14 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
         <table className="w-full text-sm">
           <thead className="bg-secondary/50">
             <tr>
-              <SortHeader label="Rank" sortKey="overallRank" />
               <SortHeader label="Player" sortKey="name" />
-              <SortHeader label="Team" sortKey="team" />
-              <SortHeader label="Age" sortKey="age" />
-              <SortHeader label="Pos" sortKey="position" />
-              <SortHeader label="Pos Rank" sortKey="positionRank" />
               <SortHeader label="Auction $" sortKey="auctionValue" />
               <SortHeader label="Value" sortKey="scaledValue" />
+              <SortHeader label="Team" sortKey="team" />
+              <SortHeader label="Age" sortKey="age" />
+              <SortHeader label="Rank" sortKey="overallRank" />
+              <SortHeader label="Pos" sortKey="position" />
+              <SortHeader label="Pos Rank" sortKey="positionRank" />
               <SortHeader label="Tier" sortKey="tier" />
               <SortHeader label="30-Day" sortKey="trend30" />
               {!compact && <th className="px-3 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</th>}
@@ -406,9 +406,6 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
                   p.drafted && "opacity-60",
                 )}
               >
-                <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">
-                  {p.overallRank}
-                </td>
                 <td className="px-3 py-2.5">
                   <div className="flex items-center gap-2">
                     {onToggleFavorite && (
@@ -437,23 +434,26 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
                     </span>
                   </div>
                 </td>
+                <td className="px-3 py-2.5 font-semibold font-mono tabular-nums">
+                  {formatCurrency(p.auctionValue)}
+                </td>
+                <td className="px-3 py-2.5 text-muted-foreground font-mono text-xs tabular-nums">
+                  {Math.round(p.scaledValue)}
+                </td>
                 <td className="px-3 py-2.5 text-muted-foreground">
                   {teamAbbreviation(p.team)}
                 </td>
                 <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">
                   {p.age}
                 </td>
+                <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">
+                  {p.overallRank}
+                </td>
                 <td className={cn("px-3 py-2.5 font-medium", positionColor(p.position))}>
                   {p.position}
                 </td>
                 <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">
                   {p.positionRank}
-                </td>
-                <td className="px-3 py-2.5 font-semibold font-mono tabular-nums">
-                  {formatCurrency(p.auctionValue)}
-                </td>
-                <td className="px-3 py-2.5 text-muted-foreground font-mono text-xs tabular-nums">
-                  {Math.round(p.scaledValue)}
                 </td>
                 <td className="px-3 py-2.5">
                   <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-secondary text-xs font-medium">

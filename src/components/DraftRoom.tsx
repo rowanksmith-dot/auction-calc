@@ -27,6 +27,7 @@ interface DraftRoomProps {
   players: PlayerWithValue[];
   settings: LeagueSettings;
   onUpdatePlayers: (players: PlayerWithValue[]) => void;
+  onRecalculate?: (frozenDraftedIds: Set<number>) => void;
 }
 
 const DEFAULT_THRESHOLDS = { bargain: 0.85, overpay: 1.15 };
@@ -42,6 +43,7 @@ export function DraftRoom({
   players,
   settings,
   onUpdatePlayers,
+  onRecalculate,
 }: DraftRoomProps) {
   // ── Zustand store ──
   const storeActions = useAppStore((s) => s.actions);
@@ -74,6 +76,15 @@ export function DraftRoom({
   } | null>(null);
   const [bidAmount, setBidAmount] = useState("");
   const [bidError, setBidError] = useState<string | null>(null);
+
+  // ── Recalculate Prices ──
+  // Freeze drafted players, re-run algorithm on undrafted
+  function handleRecalculate() {
+    const draftedIds = new Set(
+      storeActions.filter((a) => a.type === "DRAFT_PLAYER").map((a) => a.playerId),
+    );
+    onRecalculate?.(draftedIds);
+  }
 
   // ── Replay derived state from action log ──
   const teamDefs = useMemo(() => storeTeamNames.map((n) => ({ name: n })), [storeTeamNames]);
@@ -306,17 +317,6 @@ export function DraftRoom({
     }, 0);
     if (needed <= 0) return team.budget - team.spent;
     return (team.budget - team.spent) - (needed - 1) * settings.minBid;
-  }
-
-  // ── Recalculate Prices (keep drafted, recompute undrafted) ──
-  function handleRecalculate() {
-    // This is called from outside (via onRecalculate prop parent passes)
-    // But we also expose a button in DraftRoom itself.
-    // Logic: pass frozen drafted state up so page.tsx recalculates
-    // Actually, we trigger recalc by calling the parent's refresh flow.
-    // For now, just log it — page.tsx's handleRecalculate will be passed as prop soon.
-    // Placeholder: the real work is in page.tsx which will be notified.
-    resetDraftStore();
   }
 
   const thresholds = storeThresholds;
