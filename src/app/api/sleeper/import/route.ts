@@ -158,7 +158,11 @@ export async function POST(request: NextRequest) {
       : ("custom" as const);
     const tePremiumCustom = bonusRecTe;
 
+    // Taxi squad count from league settings (separate from bench in Sleeper, but counts towards bench total in auction)
+    const taxiSlots = (raw.league as { settings?: Record<string, number> } | null)?.settings?.taxi_slots ?? 0;
+
     // Roster slots from draft settings (these use the correct sleeper key names: slots_qb, slots_rb, etc.)
+    // BENCH includes taxi squad since both count towards bench spots in an auction draft
     const rosterSettings = {
       QB: ds.slots_qb,
       RB: ds.slots_rb,
@@ -166,7 +170,7 @@ export async function POST(request: NextRequest) {
       TE: ds.slots_te,
       FLEX: ds.slots_flex,
       SUPERFLEX: ds.slots_super_flex,
-      BENCH: ds.slots_bn,
+      BENCH: ds.slots_bn + taxiSlots,
     };
 
     // Budget from draft settings
