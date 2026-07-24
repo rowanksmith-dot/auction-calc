@@ -366,6 +366,7 @@ export function DraftRoom({
                     budget: ls.budget,
                     rosterSlots,
                     tePremium: ls.tePremium ?? "off",
+                    tePremiumCustom: ls.tePremiumCustom ?? 0,
                   });
                   setImportedSettingsApplied(true);
                 }

@@ -16,6 +16,7 @@ export interface SleeperLeagueSettings {
   budget: number;
   qbFormat: QBFormat;
   tePremium: TE_PremiumType;
+  tePremiumCustom: number;
 }
 
 export type SleeperImportData = {

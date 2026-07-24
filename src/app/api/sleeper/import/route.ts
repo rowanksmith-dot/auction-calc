@@ -148,9 +148,15 @@ export async function POST(request: NextRequest) {
             ? ("halfPpr" as const)
             : ("fullPpr" as const);
 
-    // TE premium: detect from league scoring_settings
+    // TE premium: detect from league scoring_settings.bonus_rec_te
+    // Maps to the app's supported values: "off", "half" (0.5), "full" (1.0), "custom" (anything else)
     const bonusRecTe = rawLeague?.scoring_settings?.bonus_rec_te ?? 0;
-    const tePremium = bonusRecTe > 0 ? ("on" as const) : ("off" as const);
+    const tePremium =
+      bonusRecTe === 0 || bonusRecTe === undefined ? ("off" as const)
+      : bonusRecTe === 0.5 ? ("half" as const)
+      : bonusRecTe === 1.0 ? ("full" as const)
+      : ("custom" as const);
+    const tePremiumCustom = bonusRecTe;
 
     // Roster slots from draft settings (these use the correct sleeper key names: slots_qb, slots_rb, etc.)
     const rosterSettings = {
@@ -184,6 +190,7 @@ export async function POST(request: NextRequest) {
           budget,
           qbFormat,
           tePremium,
+          tePremiumCustom,
         },
         rosteredPlayerIds,
       },
