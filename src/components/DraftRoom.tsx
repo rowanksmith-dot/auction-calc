@@ -475,12 +475,25 @@ export function DraftRoom({
               ${sleeperData.budget.toLocaleString()} budget · {sleeperData.numTeams} teams · {sleeperData.totalPicks} picks
             </p>
           </div>
-          <button
-            onClick={() => { setSleeperData(null); setShowSetup(true); }}
-            className="text-xs text-muted-foreground hover:text-foreground underline"
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (!onRecalculate) return;
+                const draftedIds = new Set(sleeperPlayers.map((p) => p.id));
+                onRecalculate(draftedIds);
+              }}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/50 border border-amber-300 dark:border-amber-700 transition-colors"
+            >
+              <RotateCcw size={10} />
+              Recalculate Prices
+            </button>
+            <button
+              onClick={() => { setSleeperData(null); setShowSetup(true); }}
+              className="text-xs text-muted-foreground hover:text-foreground underline"
+            >
+              Close
+            </button>
+          </div>
         </div>
 
         {/* League settings applied indicator */}
@@ -576,7 +589,7 @@ export function DraftRoom({
                       const pc = POS_COLORS[player.position] ?? POS_COLORS.WR;
                       const indicator = valueIndicator(player.winningBid ?? 0, player.auctionValue, thresholds.bargain, thresholds.overpay);
                       return (
-                        <div key={`${type}-${slotIdx}-filled`} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border", pc.bg, pc.border)}>
+                        <div key={`${type}-${slotIdx}-filled`} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border h-[24px]", pc.bg, pc.border)}>
                           <div className="flex items-center gap-1.5 min-w-0 flex-1">
                             <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{type === "FLEX" ? "FX" : type === "SUPERFLEX" ? "SF" : type}</span>
                             <span className="truncate text-foreground text-[10px]">{player.name}</span>
@@ -587,7 +600,7 @@ export function DraftRoom({
                     }
                     const pc = POS_COLORS[type] ?? { bg: "bg-muted/30", text: "text-muted-foreground", border: "border-border/50" };
                     return (
-                      <div key={`${type}-${slotIdx}-empty`} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed", pc.border)}>
+                      <div key={`${type}-${slotIdx}-empty`} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed h-[24px]", pc.border)}>
                         <div className="flex items-center gap-1.5 min-w-0 flex-1">
                           <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{type === "FLEX" ? "FX" : type === "SUPERFLEX" ? "SF" : type}</span>
                         </div>
@@ -833,7 +846,7 @@ export function DraftRoom({
                       const indicator = valueIndicator(player.winningBid ?? 0, player.auctionValue, thresholds.bargain, thresholds.overpay);
                       const pIdx = team.players.indexOf(player);
                       return (
-                        <div key={`${type}-${slotIdx}-filled`} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border", pc.bg, pc.border)}>
+                        <div key={`${type}-${slotIdx}-filled`} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border h-[24px]", pc.bg, pc.border)}>
                           <div className="flex items-center gap-1.5 min-w-0 flex-1">
                             <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{type === "FLEX" ? "FX" : type === "SUPERFLEX" ? "SF" : type}</span>
                             <span className="truncate text-foreground text-[10px]">{player.name}</span>
@@ -847,7 +860,7 @@ export function DraftRoom({
                     }
                     const pc = POS_COLORS[type as string] ?? { bg: "bg-muted/30", text: "text-muted-foreground", border: "border-border/50" };
                     return (
-                      <div key={`${type}-${slotIdx}-empty`} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed", pc.border)}>
+                      <div key={`${type}-${slotIdx}-empty`} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed h-[24px]", pc.border)}>
                         <div className="flex items-center gap-1.5 min-w-0 flex-1">
                           <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{type === "FLEX" ? "FX" : type === "SUPERFLEX" ? "SF" : type}</span>
                         </div>
