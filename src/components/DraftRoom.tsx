@@ -578,7 +578,7 @@ export function DraftRoom({
                     }
                     const pc = POS_COLORS[type] ?? { bg: "bg-muted/30", text: "text-muted-foreground", border: "border-border/50" };
                     return (
-                      <div key={`${type}-${slotIdx}-empty`} className={cn("flex items-center px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed", pc.border)}>
+                      <div key={`${type}-${slotIdx}-empty`} className={cn("flex items-center px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed min-h-[24px]", pc.border)}>
                         <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{type === "FLEX" ? "FX" : type === "SUPERFLEX" ? "SF" : type}</span>
                       </div>
                     );
@@ -779,7 +779,7 @@ export function DraftRoom({
                     }
                     const pc = POS_COLORS[type as string] ?? { bg: "bg-muted/30", text: "text-muted-foreground", border: "border-border/50" };
                     return (
-                      <div key={`${type}-${slotIdx}-empty`} className={cn("flex items-center px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed", pc.border)}>
+                      <div key={`${type}-${slotIdx}-empty`} className={cn("flex items-center px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed min-h-[24px]", pc.border)}>
                         <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{type === "FLEX" ? "FX" : type === "SUPERFLEX" ? "SF" : type}</span>
                       </div>
                     );
