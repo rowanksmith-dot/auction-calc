@@ -641,6 +641,10 @@ export function DraftRoom({
             .sort((a, b) => b.scaledValue - a.scaledValue);
           return (
             <div className="bg-card border border-border rounded-xl">
+              <div className="px-4 py-3 flex items-center justify-between border-b border-border/50">
+                <h3 className="text-sm font-semibold">Available Players</h3>
+                <span className="text-xs text-muted-foreground">{available.length} undrafted</span>
+              </div>
               <div className="p-2 max-h-[340px] overflow-y-auto">
                 {available.length === 0 ? (
                   <p className="text-center text-muted-foreground py-8">All players have been drafted!</p>
@@ -653,7 +657,6 @@ export function DraftRoom({
                         <span className="w-12 text-right shrink-0">Val</span>
                         <span className="w-5 text-right shrink-0">Rk</span>
                         <span className="flex-1">Player</span>
-                        <span className="w-[30px] text-left">Team</span>
                       </div>
                       <span className="w-[60px] text-right">Auction</span>
                     </div>
