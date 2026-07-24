@@ -63,10 +63,19 @@ export function DraftRoom({
 
   // ── Local state (UI-only, not persisted) ──
   const [selectedTeam, setSelectedTeam] = useState<number>(0);
-  const [showSetup, setShowSetup] = useState(storeTeamNames.length === 0);
+  const [showSetup, setShowSetup] = useState(() => {
+    const hasStored = typeof window !== "undefined" && localStorage.getItem("acSleeperDraft");
+    return storeTeamNames.length === 0 && !hasStored;
+  });
   const [showThresholdConfig, setShowThresholdConfig] = useState(false);
   const [showSleeperImport, setShowSleeperImport] = useState(false);
-  const [sleeperData, setSleeperData] = useState<SleeperImportData | null>(null);
+  // Persisted in localStorage so it survives reloads
+  const [sleeperData, setSleeperData] = useState<SleeperImportData | null>(() => {
+    try {
+      const raw = typeof window !== "undefined" ? localStorage.getItem("acSleeperDraft") : null;
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
   const [importedSettingsApplied, setImportedSettingsApplied] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
   const [teamNameInputs, setTeamNameInputs] = useState<string[]>(
@@ -344,6 +353,7 @@ export function DraftRoom({
             <h3 className="text-sm font-medium mb-2">Import from Sleeper</h3>
             <SleeperImport
               onImport={(data) => {
+                try { localStorage.setItem("acSleeperDraft", JSON.stringify(data)); } catch {}
                 // Pre-fill team names from Sleeper data
                 const sortedTeams = Object.values(data.teams)
                   .sort((a, b) => a.rosterId - b.rosterId);
@@ -488,7 +498,7 @@ export function DraftRoom({
               Recalculate Prices
             </button>
             <button
-              onClick={() => { setSleeperData(null); setShowSetup(true); }}
+              onClick={() => { setSleeperData(null); setShowSetup(true); try { localStorage.removeItem("acSleeperDraft"); } catch {} }}
               className="text-xs text-muted-foreground hover:text-foreground underline"
             >
               Close
@@ -631,15 +641,23 @@ export function DraftRoom({
             .sort((a, b) => b.scaledValue - a.scaledValue);
           return (
             <div className="bg-card border border-border rounded-xl">
-              <div className="px-4 py-3 flex items-center justify-between border-b border-border/50">
-                <h3 className="text-sm font-semibold">Available Players</h3>
-                <span className="text-xs text-muted-foreground">{available.length} undrafted</span>
-              </div>
               <div className="p-2 max-h-[340px] overflow-y-auto">
                 {available.length === 0 ? (
                   <p className="text-center text-muted-foreground py-8">All players have been drafted!</p>
                 ) : (
-                  available.map((p) => {
+                  <div>
+                    {/* Column headers */}
+                    <div className="flex items-center justify-between px-3 py-1.5 mb-0.5 text-[10px] text-muted-foreground font-medium">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className="w-[26px] shrink-0 text-center">Pos</span>
+                        <span className="w-12 text-right shrink-0">Val</span>
+                        <span className="w-5 text-right shrink-0">Rk</span>
+                        <span className="flex-1">Player</span>
+                        <span className="w-[30px] text-left">Team</span>
+                      </div>
+                      <span className="w-[60px] text-right">Auction</span>
+                    </div>
+                    {available.map((p) => {
                     const pc = POS_COLORS[p.position] ?? POS_COLORS.WR;
                     return (
                       <div key={p.id}
@@ -663,7 +681,8 @@ export function DraftRoom({
                         </span>
                       </div>
                     );
-                  })
+                  })}
+                </div>
                 )}
               </div>
             </div>
