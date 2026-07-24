@@ -428,16 +428,13 @@ export function DraftRoom({
 
   // ── Sleeper view ──
   if (sleeperData) {
-    const sleeperTeams = Object.values(sleeperData.teams)
+    const sleeperPlayers = Object.values(sleeperData.teams)
       .sort((a, b) => a.rosterId - b.rosterId)
-      .map((t, i) => ({
-        name: t.teamName,
-        budget: sleeperData.budget,
-        spent: t.spent,
-        players: t.purchases
+      .flatMap((t, i) =>
+        t.purchases
           .filter((p) => !p.fullName.startsWith("No "))
-          .map((p) => ({
-            id: -(parseInt(p.sleeperPlayerId) || (100000 + i)),
+          .map((p, j) => ({
+            id: -(parseInt(p.sleeperPlayerId) || (100000 + i * 100 + j)),
             name: p.fullName,
             team: p.team,
             position: p.position as "QB" | "RB" | "WR" | "TE",
@@ -452,8 +449,12 @@ export function DraftRoom({
             winningBid: p.auctionPrice,
             draftedBy: t.teamName,
             trend30: null,
+            rosterId: t.rosterId,
+            teamName: t.teamName,
           })),
-      }));
+      );
+
+    const sleeperTeams = Object.values(sleeperData.teams).sort((a, b) => a.rosterId - b.rosterId);
 
     return (
       <div className="space-y-4">
@@ -492,11 +493,58 @@ export function DraftRoom({
           </div>
         )}
 
-        {/* Team cards row */}
+        {/* Bench toggle */}
+        <div className="flex items-center justify-end">
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
+          >
+            {collapsed ? (
+              <><span>▴</span><span>Show bench</span></>
+            ) : (
+              <><span>▾</span><span>Hide bench</span></>
+            )}
+          </button>
+        </div>
+
+        {/* Team cards with roster slot layout */}
         <div className="flex gap-2 overflow-x-auto pb-2">
           {sleeperTeams.map((team, i) => {
+            const teamPlayers = sleeperPlayers.filter((p) => p.rosterId === team.rosterId);
             const isSelected = selectedTeam === i;
-            const rem = team.budget - team.spent;
+            const rem = sleeperData.budget - team.spent;
+
+            // Build slot layout same as regular Draft Room
+            const placed = new Set<number>();
+            const slotOrder = settings.rosterSlots
+              .sort((a, b) => {
+                if (a.type === "BENCH" && b.type !== "BENCH") return 1;
+                if (b.type === "BENCH" && a.type !== "BENCH") return -1;
+                if (a.type === "FLEX" && b.type === "SUPERFLEX") return -1;
+                if (b.type === "FLEX" && a.type === "SUPERFLEX") return 1;
+                return 0;
+              })
+              .filter((s) => !(s.type === "BENCH" && collapsed));
+
+            const slotResults: { type: string; slotIdx: number; player: typeof teamPlayers[0] | null }[] = [];
+            for (const slot of slotOrder) {
+              for (let s = 0; s < slot.count; s++) {
+                const pool = teamPlayers.filter((p) => !placed.has(p.id));
+                let candidate: typeof teamPlayers[0] | null = null;
+                if (slot.type === "BENCH") {
+                  candidate = pool[0] ?? null;
+                } else if (slot.type === "SUPERFLEX") {
+                  candidate = pool.find((p) => ["QB", "RB", "WR", "TE"].includes(p.position)) ?? null;
+                } else if (slot.type === "FLEX") {
+                  candidate = pool.find((p) => ["RB", "WR", "TE"].includes(p.position)) ?? null;
+                } else {
+                  candidate = pool.find((p) => p.position === slot.type) ?? null;
+                }
+                if (candidate) placed.add(candidate.id);
+                slotResults.push({ type: slot.type, slotIdx: s, player: candidate });
+              }
+            }
+
             return (
               <div key={i}
                 className={cn(
@@ -508,22 +556,30 @@ export function DraftRoom({
                 )}
               >
                 <div className="px-3 pt-2.5 pb-2 border-b border-border/50">
-                  <div className={cn("text-sm truncate", isSelected && "font-bold")}>{team.name}</div>
+                  <div className={cn("text-sm truncate", isSelected && "font-bold")}>{team.teamName}</div>
                   <div className={cn("text-lg tabular-nums mt-0.5", isSelected ? "font-extrabold" : "font-bold")}>
                     {formatCurrency(rem)}
                   </div>
                 </div>
                 <div className="p-1.5 space-y-0.5 min-h-[40px]">
-                  {team.players.map((p) => {
-                    const pc = POS_COLORS[p.position] ?? POS_COLORS.WR;
-                    const indicator = valueIndicator(p.winningBid ?? 0, p.auctionValue, thresholds.bargain, thresholds.overpay);
-                    return (
-                      <div key={p.id} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border", pc.bg, pc.border)}>
-                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                          <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{p.position}</span>
-                          <span className="truncate text-foreground text-[10px]">{p.name}</span>
+                  {slotResults.map(({ type, slotIdx, player }) => {
+                    if (player) {
+                      const pc = POS_COLORS[player.position] ?? POS_COLORS.WR;
+                      const indicator = valueIndicator(player.winningBid ?? 0, player.auctionValue, thresholds.bargain, thresholds.overpay);
+                      return (
+                        <div key={`${type}-${slotIdx}-filled`} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border", pc.bg, pc.border)}>
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{type === "FLEX" ? "FX" : type === "SUPERFLEX" ? "SF" : type}</span>
+                            <span className="truncate text-foreground text-[10px]">{player.name}</span>
+                          </div>
+                          <span className={cn("font-mono tabular-nums text-[10px]", indicator.color)}>{formatCurrency(player.winningBid ?? 0)}</span>
                         </div>
-                        <span className={cn("font-mono tabular-nums text-[10px]", indicator.color)}>{formatCurrency(p.winningBid ?? 0)}</span>
+                      );
+                    }
+                    const pc = POS_COLORS[type] ?? { bg: "bg-muted/30", text: "text-muted-foreground", border: "border-border/50" };
+                    return (
+                      <div key={`${type}-${slotIdx}-empty`} className={cn("flex items-center px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed", pc.border)}>
+                        <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{type === "FLEX" ? "FX" : type === "SUPERFLEX" ? "SF" : type}</span>
                       </div>
                     );
                   })}
@@ -535,9 +591,9 @@ export function DraftRoom({
 
         {/* Summary */}
         <div className="text-xs text-muted-foreground text-center">
-          {sleeperTeams.reduce((s, t) => s + t.players.length, 0)} players ·
+          {sleeperPlayers.length} players ·
           ${sleeperTeams.reduce((s, t) => s + t.spent, 0).toLocaleString()} total spent ·
-          ${sleeperTeams.reduce((s, t) => s + (t.budget - t.spent), 0).toLocaleString()} remaining
+          ${sleeperTeams.reduce((s, t) => s + (sleeperData.budget - t.spent), 0).toLocaleString()} remaining
         </div>
       </div>
     );
