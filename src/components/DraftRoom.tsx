@@ -545,6 +545,12 @@ export function DraftRoom({
               }
             }
 
+            // Max bid = remaining - unfilledSlots + 1
+            const totalSlots = settings.rosterSlots.reduce((sum, s) => sum + s.count, 0);
+            const filledCount = teamPlayers.length;
+            const unfilledSlots = Math.max(0, totalSlots - filledCount);
+            const maxBid = rem - unfilledSlots + 1;
+
             return (
               <div key={i}
                 className={cn(
@@ -559,6 +565,9 @@ export function DraftRoom({
                   <div className={cn("text-sm truncate", isSelected && "font-bold")}>{team.teamName}</div>
                   <div className={cn("text-lg tabular-nums mt-0.5", isSelected ? "font-extrabold" : "font-bold")}>
                     {formatCurrency(rem)}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                    Max bid: {formatCurrency(maxBid)}
                   </div>
                 </div>
                 <div className="p-1.5 space-y-0.5 min-h-[40px]">
@@ -578,8 +587,10 @@ export function DraftRoom({
                     }
                     const pc = POS_COLORS[type] ?? { bg: "bg-muted/30", text: "text-muted-foreground", border: "border-border/50" };
                     return (
-                      <div key={`${type}-${slotIdx}-empty`} className={cn("flex items-center px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed min-h-[24px]", pc.border)}>
-                        <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{type === "FLEX" ? "FX" : type === "SUPERFLEX" ? "SF" : type}</span>
+                      <div key={`${type}-${slotIdx}-empty`} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed", pc.border)}>
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                          <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{type === "FLEX" ? "FX" : type === "SUPERFLEX" ? "SF" : type}</span>
+                        </div>
                       </div>
                     );
                   })}
@@ -595,6 +606,56 @@ export function DraftRoom({
           ${sleeperTeams.reduce((s, t) => s + t.spent, 0).toLocaleString()} total spent ·
           ${sleeperTeams.reduce((s, t) => s + (sleeperData.budget - t.spent), 0).toLocaleString()} remaining
         </div>
+
+        {/* Available Players */}
+        {(() => {
+          // sleeperPlayers use negated IDs while the players prop uses normal IDs
+          // Match by normalized name instead
+          const normalizeName = (n: string) => n.toLowerCase().replace(/\s+(jr|sr|ii|iii|iv|v)\.?$/i, '').replace(/[^a-z0-9 ]/g, '').trim();
+          const draftedNames = new Set(sleeperPlayers.map((p) => normalizeName(p.name)));
+          const available = players
+            .filter((p) => !draftedNames.has(normalizeName(p.name)))
+            .sort((a, b) => b.scaledValue - a.scaledValue);
+          return (
+            <div className="bg-card border border-border rounded-xl">
+              <div className="px-4 py-3 flex items-center justify-between border-b border-border/50">
+                <h3 className="text-sm font-semibold">Available Players</h3>
+                <span className="text-xs text-muted-foreground">{available.length} undrafted</span>
+              </div>
+              <div className="p-2 max-h-[340px] overflow-y-auto">
+                {available.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-8">All players have been drafted!</p>
+                ) : (
+                  available.map((p) => {
+                    const pc = POS_COLORS[p.position] ?? POS_COLORS.WR;
+                    return (
+                      <div key={p.id}
+                        className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-muted transition-colors text-left"
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <span className={cn("text-[10px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0 text-center min-w-[26px]", pc.bg, pc.text)}>
+                            {p.position}
+                          </span>
+                          <span className="text-[11px] font-mono tabular-nums text-muted-foreground shrink-0 w-12 text-right">
+                            {p.scaledValue.toFixed(0)}
+                          </span>
+                          <span className="text-xs font-mono tabular-nums text-muted-foreground w-5 text-right shrink-0">
+                            {p.overallRank}
+                          </span>
+                          <span className="text-sm font-medium truncate">{p.name}</span>
+                          <span className="text-[10px] text-muted-foreground font-mono">{p.team}</span>
+                        </div>
+                        <span className="text-sm font-mono tabular-nums font-semibold">
+                          {formatCurrency(p.auctionValue)}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   }
@@ -700,6 +761,10 @@ export function DraftRoom({
         {teams.map((team, i) => {
           const isSelected = selectedTeam === i;
           const rem = team.budget - team.spent;
+          const rosterSlotTotal = settings.rosterSlots.reduce((sum, s) => sum + s.count, 0);
+          const filledCount = team.players.length;
+          const unfilledSlots = Math.max(0, rosterSlotTotal - filledCount);
+          const maxBid = rem - unfilledSlots + 1;
           return (
             <button
               key={i}
@@ -719,6 +784,9 @@ export function DraftRoom({
                 </div>
                 <div className={cn("text-lg tabular-nums mt-0.5", isSelected ? "font-extrabold" : "font-bold")}>
                   {formatCurrency(rem)}
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">
+                  Max bid: {formatCurrency(maxBid)}
                 </div>
               </div>
 
@@ -779,8 +847,10 @@ export function DraftRoom({
                     }
                     const pc = POS_COLORS[type as string] ?? { bg: "bg-muted/30", text: "text-muted-foreground", border: "border-border/50" };
                     return (
-                      <div key={`${type}-${slotIdx}-empty`} className={cn("flex items-center px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed min-h-[24px]", pc.border)}>
-                        <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{type === "FLEX" ? "FX" : type === "SUPERFLEX" ? "SF" : type}</span>
+                      <div key={`${type}-${slotIdx}-empty`} className={cn("flex items-center justify-between px-1.5 py-0.5 rounded-[4px] text-[11px] border border-dashed", pc.border)}>
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                          <span className={cn("text-[9px] font-bold uppercase shrink-0", pc.text)}>{type === "FLEX" ? "FX" : type === "SUPERFLEX" ? "SF" : type}</span>
+                        </div>
                       </div>
                     );
                   });

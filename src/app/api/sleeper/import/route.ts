@@ -25,7 +25,7 @@ import type { ValidatedSleeperDraft } from "@/lib/sleeper/schemas";
 
 // ---- Validation ----
 
-const SLEEPER_URL_PATTERN = /^https:\/\/sleeper\.app\/draft\/nfl\/(\d+)/;
+const SLEEPER_URL_PATTERN = /^https:\/\/sleeper\.(?:app|com)\/draft\/nfl\/(\d+)/;
 const DRAFT_ID_PATTERN = /^\d{10,}$/;
 
 const RequestSchema = z.object({
@@ -47,7 +47,7 @@ function extractDraftId(input: string): string {
   if (DRAFT_ID_PATTERN.test(trimmed)) return trimmed;
 
   throw new Error(
-    'Invalid draft input. Provide a Sleeper draft URL (https://sleeper.app/draft/nfl/...) or a numeric draft ID.',
+    'Invalid draft input. Provide a Sleeper draft URL (https://sleeper.app or .com/draft/nfl/...) or a numeric draft ID.',
   );
 }
 
