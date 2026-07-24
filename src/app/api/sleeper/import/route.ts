@@ -128,22 +128,29 @@ export async function POST(request: NextRequest) {
     const status = raw.league?.status ?? result.status ?? "";
     const numTeams = raw.league?.total_rosters ?? ds.teams;
 
-    // Scoring: draft.metadata.scoring_type gives "ppr", "half", "standard"
-    const scoringType = raw.draft.metadata?.scoring_type;
-    const scoring =
-      scoringType === "ppr" ? ("fullPpr" as const)
-      : scoringType === "half" ? ("halfPpr" as const)
-      : ("standard" as const);
-
-    // TE premium: detect from league scoring_settings (bonus_rec_te or rec > 0.5 PPR with TE bonus)
+    // Scoring: detect from league scoring_settings.rec (reception points)
+    // Fallback to draft.metadata.scoring_type which can be "ppr", "half", "standard",
+    // or league-specific strings like "dynasty_ppr", "dynasty_2qb", etc.
     const rawLeague = raw.league as { scoring_settings?: Record<string, number> } | null;
+    const rec = rawLeague?.scoring_settings?.rec;
+    const scoring =
+      rec === undefined || rec === null
+        ? // Fallback to metadata string if league data unavailable
+          (() => {
+            const st = raw.draft.metadata?.scoring_type ?? "";
+            if (st.includes("ppr")) return "fullPpr" as const;
+            if (st.includes("half")) return "halfPpr" as const;
+            return "standard" as const;
+          })()
+        : rec === 0
+          ? ("standard" as const)
+          : rec <= 0.5
+            ? ("halfPpr" as const)
+            : ("fullPpr" as const);
+
+    // TE premium: detect from league scoring_settings
     const bonusRecTe = rawLeague?.scoring_settings?.bonus_rec_te ?? 0;
-    const rec = rawLeague?.scoring_settings?.rec ?? 0;
-    // If bonus_rec_te > 0 or rec > 1.0 (indicating extra TE boost), we enable TE premium
-    const tePremium =
-      bonusRecTe > 0 || rec > 1.0
-        ? ("on" as const)
-        : ("off" as const);
+    const tePremium = bonusRecTe > 0 ? ("on" as const) : ("off" as const);
 
     // Roster slots from draft settings (these use the correct sleeper key names: slots_qb, slots_rb, etc.)
     const rosterSettings = {
