@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import { Upload, Loader2, AlertCircle, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ScoringType, QBFormat, RosterSlotType } from "@/lib/types";
+import type { ScoringType, QBFormat, RosterSlotType, TE_PremiumType } from "@/lib/types";
 
 /** League settings data from Sleeper, used to auto-configure the draft board. */
 export interface SleeperLeagueSettings {
@@ -15,6 +15,7 @@ export interface SleeperLeagueSettings {
   rosterSettings: Record<RosterSlotType, number>;
   budget: number;
   qbFormat: QBFormat;
+  tePremium: TE_PremiumType;
 }
 
 export type SleeperImportData = {

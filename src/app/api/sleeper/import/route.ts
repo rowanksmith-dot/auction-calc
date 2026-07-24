@@ -15,14 +15,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
   fetchAllDraftData,
-  fetchLeagueExtended,
   SleeperApiError,
   SleeperRateLimitError,
   SleeperTimeoutError,
 } from "@/lib/sleeper/client";
 import { normalizeImportResult } from "@/lib/sleeper/normalize";
-import type { ValidatedSleeperLeague } from "@/lib/sleeper/schemas";
 import type { SleeperUserResponse, SleeperRosterResponse } from "@/lib/sleeper/types";
+import type { ValidatedSleeperDraft } from "@/lib/sleeper/schemas";
 
 // ---- Validation ----
 
@@ -107,14 +106,6 @@ export async function POST(request: NextRequest) {
       rosters: raw.rosters as SleeperRosterResponse[] | null,
     });
 
-    // Fetch extended league settings for auto-configuring the board.
-    // fetchAllDraftData already fetches league+users+rosters; we just need
-    // the scoring_settings and settings objects which the basic fetchLeague doesn't parse.
-    let leagueSettings: ValidatedSleeperLeague | null = null;
-    if (raw.draft.league_id) {
-      leagueSettings = await fetchLeagueExtended(raw.draft.league_id).catch(() => null);
-    }
-
     // Collect all rostered player IDs (players already on rosters before the draft)
     const rosteredPlayerIds: string[] = [];
     const rosters = raw.rosters as Array<{ players?: string[] }> | null;
@@ -130,42 +121,63 @@ export async function POST(request: NextRequest) {
       rosteredPlayerIds.push(...seen);
     }
 
+    // Build league settings from draft data (we already have this — no extra API call)
+    const ds = raw.draft.settings;
+    const leagueName = raw.league?.name ?? result.leagueName ?? "";
+    const season = raw.league?.season ?? result.season ?? "";
+    const status = raw.league?.status ?? result.status ?? "";
+    const numTeams = raw.league?.total_rosters ?? ds.teams;
+
+    // Scoring: draft.metadata.scoring_type gives "ppr", "half", "standard"
+    const scoringType = raw.draft.metadata?.scoring_type;
+    const scoring =
+      scoringType === "ppr" ? ("fullPpr" as const)
+      : scoringType === "half" ? ("halfPpr" as const)
+      : ("standard" as const);
+
+    // TE premium: detect from league scoring_settings (bonus_rec_te or rec > 0.5 PPR with TE bonus)
+    const rawLeague = raw.league as { scoring_settings?: Record<string, number> } | null;
+    const bonusRecTe = rawLeague?.scoring_settings?.bonus_rec_te ?? 0;
+    const rec = rawLeague?.scoring_settings?.rec ?? 0;
+    // If bonus_rec_te > 0 or rec > 1.0 (indicating extra TE boost), we enable TE premium
+    const tePremium =
+      bonusRecTe > 0 || rec > 1.0
+        ? ("on" as const)
+        : ("off" as const);
+
+    // Roster slots from draft settings (these use the correct sleeper key names: slots_qb, slots_rb, etc.)
+    const rosterSettings = {
+      QB: ds.slots_qb,
+      RB: ds.slots_rb,
+      WR: ds.slots_wr,
+      TE: ds.slots_te,
+      FLEX: ds.slots_flex,
+      SUPERFLEX: ds.slots_super_flex,
+      BENCH: ds.slots_bn,
+    };
+
+    // Budget from draft settings
+    const budget = ds.budget;
+
+    // QB format: if SUPERFLEX slot > 0 it's superflex, else 1QB
+    const qbFormat: "superflex" | "oneQb" =
+      ds.slots_super_flex > 0 ? "superflex" : "oneQb";
+
     return NextResponse.json({
       success: true,
       data: {
         ...result,
-        leagueSettings: leagueSettings
-          ? {
-              leagueName: leagueSettings.name,
-              season: leagueSettings.season,
-              status: leagueSettings.status,
-              numTeams: leagueSettings.total_rosters,
-              // Map scoring: rec points → standard/halfPpr/fullPpr
-              scoring: (() => {
-                const rec = leagueSettings.scoring_settings?.rec;
-                if (rec === 0 || rec === undefined) return "standard" as const;
-                if (rec === 0.5) return "halfPpr" as const;
-                if (rec >= 1) return "fullPpr" as const;
-                return "halfPpr" as const;
-              })(),
-              // Roster slot counts from league settings
-              rosterSettings: {
-                QB: leagueSettings.settings?.slots_qb ?? 1,
-                RB: leagueSettings.settings?.slots_rb ?? 2,
-                WR: leagueSettings.settings?.slots_wr ?? 2,
-                TE: leagueSettings.settings?.slots_te ?? 1,
-                FLEX: leagueSettings.settings?.slots_flex ?? 2,
-                SUPERFLEX: leagueSettings.settings?.slots_super_flex ?? 0,
-                BENCH: leagueSettings.settings?.slots_bn ?? 6,
-              },
-              // Budget from league settings, fallback to draft budget
-              budget: leagueSettings.settings?.budget ?? result.budget,
-              // QB format: superflex if SUPERFLEX slot exists
-              qbFormat: (leagueSettings.settings?.slots_super_flex ?? 0) > 0
-                ? ("superflex" as const)
-                : ("oneQb" as const),
-            }
-          : null,
+        leagueSettings: {
+          leagueName,
+          season,
+          status,
+          numTeams,
+          scoring,
+          rosterSettings,
+          budget,
+          qbFormat,
+          tePremium,
+        },
         rosteredPlayerIds,
       },
     });
