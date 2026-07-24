@@ -31,6 +31,7 @@ interface DraftRoomProps {
   settings: LeagueSettings;
   onUpdatePlayers: (players: PlayerWithValue[]) => void;
   onRecalculate?: (frozenDraftedIds: Set<number>) => void;
+  onSettingsChange?: (settings: LeagueSettings) => void;
 }
 
 const DEFAULT_THRESHOLDS = { bargain: 0.85, overpay: 1.15 };
@@ -47,6 +48,7 @@ export function DraftRoom({
   settings,
   onUpdatePlayers,
   onRecalculate,
+  onSettingsChange,
 }: DraftRoomProps) {
   // ── Zustand store ──
   const storeActions = useAppStore((s) => s.actions);
@@ -65,6 +67,7 @@ export function DraftRoom({
   const [showThresholdConfig, setShowThresholdConfig] = useState(false);
   const [showSleeperImport, setShowSleeperImport] = useState(false);
   const [sleeperData, setSleeperData] = useState<SleeperImportData | null>(null);
+  const [importedSettingsApplied, setImportedSettingsApplied] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
   const [teamNameInputs, setTeamNameInputs] = useState<string[]>(
     storeTeamNames.length > 0
@@ -341,8 +344,30 @@ export function DraftRoom({
             <h3 className="text-sm font-medium mb-2">Import from Sleeper</h3>
             <SleeperImport
               onImport={(data) => {
+                // Pre-fill team names from Sleeper data
+                const sortedTeams = Object.values(data.teams)
+                  .sort((a, b) => a.rosterId - b.rosterId);
+                const teamNames = sortedTeams.map((t) => t.teamName);
+                setTeamNameInputs(teamNames);
                 setSleeperData(data);
                 setShowSleeperImport(false);
+
+                // Auto-apply league settings if available
+                if (data.leagueSettings && onSettingsChange) {
+                  const ls = data.leagueSettings;
+                  const rosterSlots = Object.entries(ls.rosterSettings)
+                    .filter(([, count]) => count > 0)
+                    .map(([type, count]) => ({ type: type as RosterSlotType, count }));
+                  onSettingsChange({
+                    ...settings,
+                    numTeams: ls.numTeams,
+                    scoring: ls.scoring,
+                    qbFormat: ls.qbFormat,
+                    budget: ls.budget,
+                    rosterSlots,
+                  });
+                  setImportedSettingsApplied(true);
+                }
               }}
               onCancel={() => setShowSleeperImport(false)}
             />
@@ -353,9 +378,9 @@ export function DraftRoom({
             className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-border text-sm text-muted-foreground hover:text-foreground hover:border-primary/50 transition-all mb-4"
           >
             <Database size={16} />
-            <span>Sleeper Auction Import</span>
+            <span>Import from Sleeper</span>
             <span className="text-xs text-muted-foreground ml-auto">
-              Import real draft prices
+              Draft results + league settings
             </span>
           </button>
         )}
@@ -454,6 +479,16 @@ export function DraftRoom({
             Close
           </button>
         </div>
+
+        {/* League settings applied indicator */}
+        {importedSettingsApplied && sleeperData.leagueSettings && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+            <Database size={14} className="text-green-600 dark:text-green-400 shrink-0" />
+            <p className="text-xs text-green-700 dark:text-green-300">
+              League settings applied: {sleeperData.numTeams} teams · {sleeperData.leagueSettings.scoring === "fullPpr" ? "Full PPR" : sleeperData.leagueSettings.scoring === "halfPpr" ? "Half PPR" : "Standard"} · {sleeperData.leagueSettings.qbFormat === "superflex" ? "Superflex" : "1QB"} · ${sleeperData.leagueSettings.budget} budget
+            </p>
+          </div>
+        )}
 
         {/* Team cards row */}
         <div className="flex gap-2 overflow-x-auto pb-2">

@@ -10,6 +10,7 @@ import {
   SleeperDraftSchema,
   SleeperPicksArraySchema,
   SleeperLeagueSchema,
+  SleeperLeagueExtendedSchema,
   SleeperUsersArraySchema,
   SleeperRostersArraySchema,
 } from "./schemas";
@@ -150,6 +151,17 @@ export async function fetchLeague(leagueId: string) {
     `${SLEEPER_BASE}/league/${leagueId}`,
     SleeperLeagueSchema,
     `league/${leagueId}`,
+  );
+}
+
+/**
+ * Fetch league details with settings/scoring parsing.
+ */
+export async function fetchLeagueExtended(leagueId: string) {
+  return fetchJson(
+    `${SLEEPER_BASE}/league/${leagueId}`,
+    SleeperLeagueExtendedSchema,
+    `league-extended/${leagueId}`,
   );
 }
 

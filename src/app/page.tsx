@@ -652,6 +652,7 @@ export default function Home() {
             settings={settings}
             onUpdatePlayers={handleUpdatePlayers}
             onRecalculate={handleRecalculate}
+            onSettingsChange={handleSaveSettings}
           />
         )}
 

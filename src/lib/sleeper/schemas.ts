@@ -70,7 +70,55 @@ export const SleeperLeagueSchema = z.object({
   name: z.string(),
   total_rosters: z.number().int(),
   status: z.string(),
+  season: z.string(),
 }).passthrough();
+
+/**
+ * Extended league schema that validates the settings and scoring_settings
+ * objects used for matching roster/scoring configuration.
+ */
+export const SleeperLeagueExtendedSchema = SleeperLeagueSchema.extend({
+  settings: z.object({
+    num_teams: z.number().int().optional(),
+    budget: z.number().int().optional(),
+    start_week: z.number().int().optional(),
+    playoff_week_start: z.number().int().optional(),
+    slots_qb: z.number().int().optional(),
+    slots_rb: z.number().int().optional(),
+    slots_wr: z.number().int().optional(),
+    slots_te: z.number().int().optional(),
+    slots_flex: z.number().int().optional(),
+    slots_super_flex: z.number().int().optional(),
+    slots_bn: z.number().int().optional(),
+  }).passthrough().optional(),
+  scoring_settings: z.object({
+    rec: z.number().optional(),           // reception points → PPR detection
+    bonus_rec_td: z.number().optional(),  // TE premium detection
+    rec_td: z.number().optional(),        // receiving TD points
+    pass_td: z.number().optional(),       // passing TD
+    rush_td: z.number().optional(),       // rushing TD
+    pass_yd: z.number().optional(),       // passing yards per point
+    rush_yd: z.number().optional(),       // rushing yards per point
+    rec_yd: z.number().optional(),        // receiving yards per point
+    int: z.number().optional(),           // interceptions
+    sack: z.number().optional(),          // sacks
+    fum_lost: z.number().optional(),      // fumbles lost
+    st_td: z.number().optional(),         // special teams TD
+    bonus_rec_te: z.number().optional(),  // TE premium reception bonus
+    pts_allow_0: z.number().optional(),   // defense
+    pts_allow_1_6: z.number().optional(),
+    pts_allow_7_13: z.number().optional(),
+    pts_allow_14_17: z.number().optional(),
+    pts_allow_18_21: z.number().optional(),
+    pts_allow_22_27: z.number().optional(),
+    pts_allow_28_34: z.number().optional(),
+    pts_allow_35_45: z.number().optional(),
+    pts_allow_46_plus: z.number().optional(),
+    blk_kick: z.number().optional(),
+  }).passthrough().optional(),
+}).passthrough();
+
+export type ValidatedSleeperLeague = z.infer<typeof SleeperLeagueExtendedSchema>;
 
 // ---- Users ----
 

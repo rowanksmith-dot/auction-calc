@@ -3,6 +3,19 @@
 import { useState, useCallback } from "react";
 import { Upload, Loader2, AlertCircle, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { ScoringType, QBFormat, RosterSlotType } from "@/lib/types";
+
+/** League settings data from Sleeper, used to auto-configure the draft board. */
+export interface SleeperLeagueSettings {
+  leagueName: string;
+  season: string;
+  status: string;
+  numTeams: number;
+  scoring: ScoringType;
+  rosterSettings: Record<RosterSlotType, number>;
+  budget: number;
+  qbFormat: QBFormat;
+}
 
 export type SleeperImportData = {
   draftId: string;
@@ -34,6 +47,10 @@ export type SleeperImportData = {
       matchedFcValue?: number;
     }>;
   }>;
+  /** League settings for auto-configuring the board. null if couldn't fetch. */
+  leagueSettings: SleeperLeagueSettings | null;
+  /** Player IDs already rostered in the league (not auction-picked). */
+  rosteredPlayerIds: string[];
 };
 
 interface Props {

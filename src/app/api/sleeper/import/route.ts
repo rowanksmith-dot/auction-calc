@@ -15,11 +15,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
   fetchAllDraftData,
+  fetchLeagueExtended,
   SleeperApiError,
   SleeperRateLimitError,
   SleeperTimeoutError,
 } from "@/lib/sleeper/client";
 import { normalizeImportResult } from "@/lib/sleeper/normalize";
+import type { ValidatedSleeperLeague } from "@/lib/sleeper/schemas";
 import type { SleeperUserResponse, SleeperRosterResponse } from "@/lib/sleeper/types";
 
 // ---- Validation ----
@@ -105,9 +107,67 @@ export async function POST(request: NextRequest) {
       rosters: raw.rosters as SleeperRosterResponse[] | null,
     });
 
+    // Fetch extended league settings for auto-configuring the board.
+    // fetchAllDraftData already fetches league+users+rosters; we just need
+    // the scoring_settings and settings objects which the basic fetchLeague doesn't parse.
+    let leagueSettings: ValidatedSleeperLeague | null = null;
+    if (raw.draft.league_id) {
+      leagueSettings = await fetchLeagueExtended(raw.draft.league_id).catch(() => null);
+    }
+
+    // Collect all rostered player IDs (players already on rosters before the draft)
+    const rosteredPlayerIds: string[] = [];
+    const rosters = raw.rosters as Array<{ players?: string[] }> | null;
+    if (rosters) {
+      const seen = new Set<string>();
+      for (const roster of rosters) {
+        if (roster.players) {
+          for (const pid of roster.players) {
+            seen.add(pid);
+          }
+        }
+      }
+      rosteredPlayerIds.push(...seen);
+    }
+
     return NextResponse.json({
       success: true,
-      data: result,
+      data: {
+        ...result,
+        leagueSettings: leagueSettings
+          ? {
+              leagueName: leagueSettings.name,
+              season: leagueSettings.season,
+              status: leagueSettings.status,
+              numTeams: leagueSettings.total_rosters,
+              // Map scoring: rec points → standard/halfPpr/fullPpr
+              scoring: (() => {
+                const rec = leagueSettings.scoring_settings?.rec;
+                if (rec === 0 || rec === undefined) return "standard" as const;
+                if (rec === 0.5) return "halfPpr" as const;
+                if (rec >= 1) return "fullPpr" as const;
+                return "halfPpr" as const;
+              })(),
+              // Roster slot counts from league settings
+              rosterSettings: {
+                QB: leagueSettings.settings?.slots_qb ?? 1,
+                RB: leagueSettings.settings?.slots_rb ?? 2,
+                WR: leagueSettings.settings?.slots_wr ?? 2,
+                TE: leagueSettings.settings?.slots_te ?? 1,
+                FLEX: leagueSettings.settings?.slots_flex ?? 2,
+                SUPERFLEX: leagueSettings.settings?.slots_super_flex ?? 0,
+                BENCH: leagueSettings.settings?.slots_bn ?? 6,
+              },
+              // Budget from league settings, fallback to draft budget
+              budget: leagueSettings.settings?.budget ?? result.budget,
+              // QB format: superflex if SUPERFLEX slot exists
+              qbFormat: (leagueSettings.settings?.slots_super_flex ?? 0) > 0
+                ? ("superflex" as const)
+                : ("oneQb" as const),
+            }
+          : null,
+        rosteredPlayerIds,
+      },
     });
   } catch (err) {
     // Handle known Sleeper errors
