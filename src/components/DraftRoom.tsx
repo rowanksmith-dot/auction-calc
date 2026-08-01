@@ -553,7 +553,7 @@ export function DraftRoom({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {/* Recalculate Prices + inflation hidden — Reload Draft covers the Sleeper workflow */}
+            {/* Recalculate Prices hidden — Reload Draft covers the Sleeper workflow */}
             <button
               onClick={async () => {
                 if (!sleeperData.sleeperUrl) return;
@@ -593,6 +593,15 @@ export function DraftRoom({
               <RefreshCw size={10} />
               Reload Draft
             </button>
+            {recalcInfo && recalcInfo.inflationPct > 0 ? (
+              <span className="text-[10px] text-muted-foreground px-2 py-1 rounded-md bg-muted/50">
+                Inflation: <span className={recalcInfo.inflationPct > 100 ? "text-red-500 font-semibold" : "text-green-500 font-semibold"}>{recalcInfo.inflationPct}%</span>
+              </span>
+            ) : (
+              <span className="text-[10px] text-muted-foreground px-2 py-1 rounded-md bg-muted/50">
+                Inflation: —
+              </span>
+            )}
             <button
               onClick={() => { setSleeperData(null); setShowSetup(true); try { localStorage.removeItem("acSleeperDraft"); } catch {} }}
               className="text-xs text-muted-foreground hover:text-foreground underline"
