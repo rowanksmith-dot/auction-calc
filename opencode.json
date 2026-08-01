@@ -1,0 +1,58 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "deepseek/deepseek-v4-pro",
+  "agent": {
+    "sonnet-build": {
+      "description": "Complex implementation agent. Use for difficult cross-file React/TypeScript work, state-management bugs, test failures, or problems DeepSeek couldn't resolve after limited attempts. Requires explicit approval.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-5",
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "webfetch": "allow",
+        "websearch": "allow",
+        "edit": {
+          "*": "allow",
+          "*.env": "ask",
+          "*.env.*": "ask",
+          ".git/*": "deny"
+        },
+        "bash": {
+          "*": "allow",
+          "git push*": "deny",
+          "npm publish*": "deny",
+          "vercel deploy*": "deny",
+          "git commit --allow-empty*": "deny"
+        },
+        "external_directory": {
+          "*": "deny",
+          "/Users/amiyatsmith/.local/share/opencode/tool-output/*": "allow",
+          "/Users/amiyatsmith/.openclaw/tmp/opencode/*": "allow"
+        },
+        "doom_loop": "ask"
+      }
+    },
+    "opus-audit": {
+      "description": "Read-only audit agent. Use for auction-value mathematics, inflation calculations, curve-fitting, FLEX/Superflex allocation, exact-budget invariants, architecture review, and final predeployment audit. Requires explicit approval.",
+      "mode": "subagent",
+      "model": "anthropic/claude-opus-5",
+      "temperature": 0.1,
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "webfetch": "allow",
+        "websearch": "allow",
+        "edit": "deny",
+        "bash": "deny",
+        "external_directory": "deny",
+        "todowrite": "deny",
+        "doom_loop": "ask",
+        "question": "allow"
+      }
+    }
+  }
+}

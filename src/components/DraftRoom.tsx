@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Users,
   Undo2,
   RotateCcw,
+  RefreshCw,
   Download,
   Upload,
   Edit3,
@@ -30,11 +31,22 @@ interface DraftRoomProps {
   players: PlayerWithValue[];
   settings: LeagueSettings;
   onUpdatePlayers: (players: PlayerWithValue[]) => void;
-  onRecalculate?: (frozenDraftedIds: Set<number>) => void;
+  onRecalculate?: (frozenDraftedIds: Set<number>, actualSpent?: number, playerBids?: Map<number, number>) => void;
   onSettingsChange?: (settings: LeagueSettings) => void;
+  recalcInfo?: {
+    inflationPct: number;
+    thresholdRate: number;
+    remainingBudget: number;
+    projectedValue: number;
+  } | null;
 }
 
 const DEFAULT_THRESHOLDS = { bargain: 0.85, overpay: 1.15 };
+
+// Sleeper player IDs are negated placeholders and don't match FantasyCalc IDs.
+// Normalize names for cross-referencing between the two sources.
+const normalizeName = (n: string) =>
+  n.toLowerCase().replace(/\s+(jr|sr|ii|iii|iv|v)\.?$/i, "").replace(/[^a-z0-9 ]/g, "").trim();
 
 const POS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   QB: { bg: "bg-blue-500/15 dark:bg-blue-500/20", text: "text-blue-600 dark:text-blue-300", border: "border-blue-500/25 dark:border-blue-500/30" },
@@ -49,6 +61,7 @@ export function DraftRoom({
   onUpdatePlayers,
   onRecalculate,
   onSettingsChange,
+  recalcInfo,
 }: DraftRoomProps) {
   // ── Zustand store ──
   const storeActions = useAppStore((s) => s.actions);
@@ -77,6 +90,7 @@ export function DraftRoom({
     } catch { return null; }
   });
   const [importedSettingsApplied, setImportedSettingsApplied] = useState(false);
+  const didAutoRecalcRef = useRef(false);
   const [collapsed, setCollapsed] = useState(true);
   const [teamNameInputs, setTeamNameInputs] = useState<string[]>(
     storeTeamNames.length > 0
@@ -94,13 +108,64 @@ export function DraftRoom({
   const [bidAmount, setBidAmount] = useState("");
   const [bidError, setBidError] = useState<string | null>(null);
 
+  // ── Auto-recalculate after Sleeper import applies settings ──
+  useEffect(() => {
+    if (!importedSettingsApplied || !sleeperData || !onRecalculate) return;
+    if (didAutoRecalcRef.current) return;
+    didAutoRecalcRef.current = true;
+
+    // Reconstruct sleeperPlayers to get drafted names and actual spending.
+    // Sleeper IDs are negated placeholders and don't match FantasyCalc IDs —
+    // cross-reference by normalized name to recover the real IDs.
+    const sleeperPlayerNames = Object.values(sleeperData.teams).flatMap((t) =>
+      t.purchases
+        .filter((p) => !p.fullName.startsWith("No "))
+        .map((p) => p.fullName),
+    );
+    const draftedNames = new Set(sleeperPlayerNames.map((n) => normalizeName(n)));
+    const draftedIds = new Set(
+      players.filter((p) => draftedNames.has(normalizeName(p.name))).map((p) => p.id),
+    );
+    const actualSpent = Object.values(sleeperData.teams).reduce((s, t) => s + t.spent, 0);
+    // Build per-player bid map from Sleeper purchase data
+    const playerBids = new Map<number, number>();
+    for (const team of Object.values(sleeperData.teams)) {
+      for (const purchase of team.purchases) {
+        if (purchase.fullName.startsWith("No ")) continue;
+        const player = players.find((p) => normalizeName(p.name) === normalizeName(purchase.fullName));
+        if (player) playerBids.set(player.id, purchase.auctionPrice);
+      }
+    }
+    onRecalculate(draftedIds, actualSpent, playerBids);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [importedSettingsApplied, sleeperData, onRecalculate]);
+
+  // Reset auto-recalc flag when sleeper data changes (new import)
+  useEffect(() => {
+    didAutoRecalcRef.current = false;
+  }, [sleeperData?.leagueName]);
+
   // ── Recalculate Prices ──
   // Freeze drafted players, re-run algorithm on undrafted
   function handleRecalculate() {
-    const draftedIds = new Set(
-      storeActions.filter((a) => a.type === "DRAFT_PLAYER").map((a) => a.playerId),
-    );
-    onRecalculate?.(draftedIds);
+    const storeDraftedIds = storeActions
+      .filter((a) => a.type === "DRAFT_PLAYER")
+      .map((a) => a.playerId);
+    const alreadyDraftedIds = players
+      .filter((p) => p.drafted && p.winningBid != null)
+      .map((p) => p.id);
+    const draftedIds = new Set([...storeDraftedIds, ...alreadyDraftedIds]);
+    const actualSpent = players
+      .filter((p) => draftedIds.has(p.id))
+      .reduce((sum, p) => sum + (p.winningBid ?? 0), 0);
+    // Build per-player bid map from current player state
+    const playerBids = new Map<number, number>();
+    for (const p of players) {
+      if (draftedIds.has(p.id) && p.winningBid != null) {
+        playerBids.set(p.id, p.winningBid);
+      }
+    }
+    onRecalculate?.(draftedIds, actualSpent, playerBids);
   }
 
   // ── Replay derived state from action log ──
@@ -146,6 +211,7 @@ export function DraftRoom({
           sourceValue: 0,
           scaledValue: 0,
           auctionValue: 0,
+          dynamicValue: null,
           positionRank: 0,
           overallRank: 0,
           tier: 0,
@@ -164,7 +230,7 @@ export function DraftRoom({
     });
   }, [replayResult, players, settings.budget]);
 
-  // ── Sync drafted state back to parent via players ──
+  // ── Sync drafted state back to parent (fire on store changes and initial mount, not on players changes to avoid loops) ──
   useEffect(() => {
     const updated = players.map((p) => {
       const action = storeActions
@@ -177,7 +243,8 @@ export function DraftRoom({
       return { ...p, drafted: true, draftedBy: teamName, winningBid: action.price as number };
     });
     onUpdatePlayers(updated);
-  }, [storeActions, storeTeamNames, players, onUpdatePlayers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeActions, storeTeamNames, onUpdatePlayers]);
 
   const startDraft = useCallback(() => {
     const validNames = teamNameInputs
@@ -486,16 +553,45 @@ export function DraftRoom({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {/* Recalculate Prices + inflation hidden — Reload Draft covers the Sleeper workflow */}
             <button
-              onClick={() => {
-                if (!onRecalculate) return;
-                const draftedIds = new Set(sleeperPlayers.map((p) => p.id));
-                onRecalculate(draftedIds);
+              onClick={async () => {
+                if (!sleeperData.sleeperUrl) return;
+                setSleeperData((prev) => prev ? { ...prev, status: "Reloading..." } : null);
+                try {
+                  const res = await fetch("/api/sleeper/import", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ draftId: sleeperData.sleeperUrl }),
+                  });
+                  const json = await res.json();
+                  if (!json.success) { setSleeperData((prev) => prev ? { ...prev, status: "error" } : null); return; }
+                  const data = { ...json.data, sleeperUrl: sleeperData.sleeperUrl };
+                  setSleeperData(data);
+                  didAutoRecalcRef.current = false;
+                  if (data.leagueSettings && onSettingsChange) {
+                    const ls = data.leagueSettings;
+                    const rosterSlots = (Object.entries(ls.rosterSettings) as [string, number][])
+                      .filter(([, count]) => count > 0)
+                      .map(([type, count]) => ({ type: type as RosterSlotType, count }));
+                    onSettingsChange({
+                      ...settings,
+                      numTeams: ls.numTeams,
+                      scoring: ls.scoring,
+                      qbFormat: ls.qbFormat,
+                      budget: ls.budget,
+                      rosterSlots,
+                      tePremium: ls.tePremium ?? "off",
+                      tePremiumCustom: ls.tePremiumCustom ?? 0,
+                    });
+                    setImportedSettingsApplied(true);
+                  }
+                } catch { setSleeperData((prev) => prev ? { ...prev, status: "error" } : null); }
               }}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/50 border border-amber-300 dark:border-amber-700 transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50 border border-blue-300 dark:border-blue-700 transition-colors"
             >
-              <RotateCcw size={10} />
-              Recalculate Prices
+              <RefreshCw size={10} />
+              Reload Draft
             </button>
             <button
               onClick={() => { setSleeperData(null); setShowSetup(true); try { localStorage.removeItem("acSleeperDraft"); } catch {} }}
@@ -511,7 +607,7 @@ export function DraftRoom({
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
             <Database size={14} className="text-green-600 dark:text-green-400 shrink-0" />
             <p className="text-xs text-green-700 dark:text-green-300">
-              League settings applied: {sleeperData.numTeams} teams · {sleeperData.leagueSettings.scoring === "fullPpr" ? "Full PPR" : sleeperData.leagueSettings.scoring === "halfPpr" ? "Half PPR" : "Standard"} · {sleeperData.leagueSettings.qbFormat === "superflex" ? "Superflex" : "1QB"} · ${sleeperData.leagueSettings.budget} budget
+              League settings applied: {sleeperData.numTeams} teams · {sleeperData.leagueSettings.scoring === "fullPpr" ? "Full PPR" : sleeperData.leagueSettings.scoring === "halfPpr" ? "Half PPR" : "Standard"} · {sleeperData.leagueSettings.qbFormat === "superflex" ? "Superflex" : sleeperData.leagueSettings.qbFormat === "twoQb" ? "2QB" : "1QB"} · ${sleeperData.leagueSettings.budget} budget
             </p>
           </div>
         )}
@@ -634,11 +730,11 @@ export function DraftRoom({
         {(() => {
           // sleeperPlayers use negated IDs while the players prop uses normal IDs
           // Match by normalized name instead
-          const normalizeName = (n: string) => n.toLowerCase().replace(/\s+(jr|sr|ii|iii|iv|v)\.?$/i, '').replace(/[^a-z0-9 ]/g, '').trim();
           const draftedNames = new Set(sleeperPlayers.map((p) => normalizeName(p.name)));
           const available = players
             .filter((p) => !draftedNames.has(normalizeName(p.name)))
             .sort((a, b) => b.scaledValue - a.scaledValue);
+          const hasDynamic = available.some((p) => p.dynamicValue != null);
           return (
             <div className="bg-card border border-border rounded-xl">
               <div className="px-4 py-3 flex items-center justify-between border-b border-border/50">
@@ -651,37 +747,47 @@ export function DraftRoom({
                 ) : (
                   <div>
                     {/* Column headers */}
-                    <div className="flex items-center justify-between px-3 py-1.5 mb-0.5 text-[10px] text-muted-foreground font-medium">
+                    <div className="flex items-center gap-2 px-3 py-1.5 mb-0.5 text-[10px] text-muted-foreground font-medium">
                       <div className="flex items-center gap-2 min-w-0 flex-1">
                         <span className="w-[26px] shrink-0 text-center">Pos</span>
                         <span className="w-12 text-right shrink-0">Val</span>
-                        <span className="w-5 text-right shrink-0">Rk</span>
+                        <span className="w-8 text-right shrink-0">Rk</span>
                         <span className="flex-1">Player</span>
                       </div>
-                      <span className="w-[60px] text-right">Auction</span>
+                      <div className="flex items-center gap-4 shrink-0">
+                        {hasDynamic && <span className="w-[72px] text-right shrink-0 text-amber-600 dark:text-amber-400">Dynamic</span>}
+                        <span className="w-[72px] text-right shrink-0">Auction</span>
+                      </div>
                     </div>
                     {available.map((p) => {
                     const pc = POS_COLORS[p.position] ?? POS_COLORS.WR;
                     return (
                       <div key={p.id}
-                        className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-muted transition-colors text-left"
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors text-left"
                       >
                         <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <span className={cn("text-[10px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0 text-center min-w-[26px]", pc.bg, pc.text)}>
+                          <span className={cn("text-[10px] font-bold uppercase px-0 py-0.5 rounded shrink-0 text-center w-[26px]", pc.bg, pc.text)}>
                             {p.position}
                           </span>
                           <span className="text-[11px] font-mono tabular-nums text-muted-foreground shrink-0 w-12 text-right">
                             {p.scaledValue.toFixed(0)}
                           </span>
-                          <span className="text-xs font-mono tabular-nums text-muted-foreground w-5 text-right shrink-0">
+                          <span className="text-xs font-mono tabular-nums text-muted-foreground w-8 text-right shrink-0">
                             {p.overallRank}
                           </span>
                           <span className="text-sm font-medium truncate">{p.name}</span>
                           <span className="text-[10px] text-muted-foreground font-mono">{p.team}</span>
                         </div>
-                        <span className="text-sm font-mono tabular-nums font-semibold">
-                          {formatCurrency(p.auctionValue)}
-                        </span>
+                        <div className="flex items-center gap-4 shrink-0">
+                          {hasDynamic && (
+                            <span className="text-sm font-mono tabular-nums font-semibold text-amber-600 dark:text-amber-400 w-[72px] text-right shrink-0">
+                              {p.dynamicValue != null ? formatCurrency(p.dynamicValue) : "—"}
+                            </span>
+                          )}
+                          <span className="text-sm font-mono tabular-nums font-normal text-muted-foreground w-[72px] text-right shrink-0">
+                            {formatCurrency(p.auctionValue)}
+                          </span>
+                        </div>
                       </div>
                     );
                   })}
@@ -715,12 +821,22 @@ export function DraftRoom({
         </button>
         <button
           onClick={handleRecalculate}
-          disabled={draftActionCount === 0}
+          disabled={players.length === 0}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/50 border border-amber-300 dark:border-amber-700 disabled:opacity-40 transition-colors"
         >
           <RotateCcw size={12} />
           Recalculate Prices
         </button>
+        {recalcInfo && recalcInfo.inflationPct > 0 ? (
+          <span className="text-[10px] text-muted-foreground px-2 py-1 rounded-md bg-muted/50">
+            Inflation: <span className={recalcInfo.inflationPct > 100 ? "text-red-500 font-semibold" : "text-green-500 font-semibold"}>{recalcInfo.inflationPct}%</span>
+            {" · "}Threshold: {Math.round(recalcInfo.thresholdRate * 100)}%
+          </span>
+        ) : (
+          <span className="text-[10px] text-muted-foreground px-2 py-1 rounded-md bg-muted/50">
+            Inflation: —
+          </span>
+        )}
         <button
           onClick={resetDraft}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
@@ -942,13 +1058,13 @@ export function DraftRoom({
                   className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-muted transition-colors text-left"
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <span className={cn("text-[10px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0 text-center min-w-[26px]", pc.bg, pc.text)}>
+                    <span className={cn("text-[10px] font-bold uppercase px-0 py-0.5 rounded shrink-0 text-center w-[26px]", pc.bg, pc.text)}>
                       {p.position}
                     </span>
                     <span className="text-[11px] font-mono tabular-nums text-muted-foreground shrink-0 w-12 text-right">
                       {p.scaledValue.toFixed(0)}
                     </span>
-                    <span className="text-xs font-mono tabular-nums text-muted-foreground w-5 text-right shrink-0">
+                    <span className="text-xs font-mono tabular-nums text-muted-foreground w-8 text-right shrink-0">
                       {p.overallRank}
                     </span>
                     <span className="text-sm font-medium truncate">

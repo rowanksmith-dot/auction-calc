@@ -53,6 +53,8 @@ export type SleeperImportData = {
   leagueSettings: SleeperLeagueSettings | null;
   /** Player IDs already rostered in the league (not auction-picked). */
   rosteredPlayerIds: string[];
+  /** The URL or draft ID entered by the user, used for reload. */
+  sleeperUrl: string;
 };
 
 interface Props {
@@ -77,7 +79,7 @@ export function SleeperImport({ onImport, onCancel }: Props) {
       });
       const json = await res.json();
       if (!json.success) { setError(json.error || "Import failed"); return; }
-      onImport(json.data);
+      onImport({ ...json.data, sleeperUrl: input.trim() });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to connect");
     } finally {

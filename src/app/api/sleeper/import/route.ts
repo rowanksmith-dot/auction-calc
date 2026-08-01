@@ -176,9 +176,11 @@ export async function POST(request: NextRequest) {
     // Budget from draft settings
     const budget = ds.budget;
 
-    // QB format: if SUPERFLEX slot > 0 it's superflex, else 1QB
-    const qbFormat: "superflex" | "oneQb" =
-      ds.slots_super_flex > 0 ? "superflex" : "oneQb";
+    // QB format: SUPERFLEX > 0 → superflex, QB >= 2 → twoQb, else 1QB
+    const qbFormat: "superflex" | "twoQb" | "oneQb" =
+      ds.slots_super_flex > 0 ? "superflex"
+        : ds.slots_qb >= 2 ? "twoQb"
+        : "oneQb";
 
     return NextResponse.json({
       success: true,

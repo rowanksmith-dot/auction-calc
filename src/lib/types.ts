@@ -11,7 +11,7 @@ export type ScoringType = z.infer<typeof ScoringType>;
 export const TE_PremiumType = z.enum(["off", "half", "full", "custom"]);
 export type TE_PremiumType = z.infer<typeof TE_PremiumType>;
 
-export const QBFormat = z.enum(["oneQb", "superflex"]);
+export const QBFormat = z.enum(["oneQb", "superflex", "twoQb"]);
 export type QBFormat = z.infer<typeof QBFormat>;
 
 export const RosterSlotType = z.enum(["QB", "RB", "WR", "TE", "FLEX", "SUPERFLEX", "BENCH"]);
@@ -97,6 +97,7 @@ export interface PlayerWithValue {
   winningBid: number | null;
   draftedBy: string | null;
   trend30: number | null;
+  dynamicValue: number | null;
 }
 
 // ---- Auction Model ----

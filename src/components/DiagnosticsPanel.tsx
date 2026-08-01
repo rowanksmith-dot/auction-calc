@@ -70,7 +70,7 @@ export function DiagnosticsPanel({
 
         <Row label="Format" value={settings.format} />
         <Row label="Scoring" value={settings.scoring === "halfPpr" ? "Half PPR" : settings.scoring === "fullPpr" ? "Full PPR" : "Standard"} />
-        <Row label="QB Format" value={settings.qbFormat === "superflex" ? "Superflex" : "1QB"} />
+        <Row label="QB Format" value={settings.qbFormat === "superflex" ? "Superflex" : settings.qbFormat === "twoQb" ? "2QB" : "1QB"} />
         <Row label="TE Premium" value={settings.tePremium === "custom" ? `${settings.tePremiumCustom}x` : settings.tePremium} />
 
         <Row label="Teams" value={String(settings.numTeams)} />

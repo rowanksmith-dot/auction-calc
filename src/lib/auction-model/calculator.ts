@@ -30,6 +30,7 @@ interface ScoredPlayer {
   scaledValue: number;
   trend30: number | null;
   auctionValue: number;
+  dynamicValue: number | null;
   positionRank: number;
   overallRank: number;
   tier: number;
@@ -55,6 +56,10 @@ export interface CalculatorInput {
     trend30: number | null;
   }>;
   settings: LeagueSettings;
+  /** Override the default 0.60 bench threshold multiplier (0-1). Used for inflation adjustment. */
+  liveThresholdRate?: number;
+  /** Number of roster slots already filled by frozen/drafted players (excluded from the pool). Used on recalculate. */
+  filledRosterSlots?: number;
 }
 
 export interface CalculatorResult {
@@ -84,7 +89,8 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
     (sum, slot) => sum + slot.count,
     0,
   );
-  const draftedPlayerCount = numTeams * rosterSize;
+  const filledSlots = input.filledRosterSlots ?? 0;
+  const draftedPlayerCount = Math.max(0, numTeams * rosterSize - filledSlots);
   const reservedMinimumBudget = draftedPlayerCount * minBid;
   const discretionaryBudget = totalLeagueBudget - reservedMinimumBudget;
 
@@ -130,7 +136,7 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
   const benchAvg = benchPlayers.length > 0
     ? benchPlayers.reduce((sum, p) => sum + p.sv, 0) / benchPlayers.length
     : 0;
-  const benchThreshold = benchAvg * 0.60;
+  const benchThreshold = benchAvg * (input.liveThresholdRate ?? 0.60);
 
   const scored: ScoredPlayer[] = drafted.map((p) => {
     const scaledValue = p.position === "TE" ? p.sourceValue * tepScalar : p.sourceValue;
@@ -142,6 +148,7 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
       ...p,
       scaledValue: sv,
       auctionValue: 0,
+      dynamicValue: null,
       positionRank: 0,
       overallRank: 0,
       tier: 0,  // set in assignTiers
@@ -244,6 +251,7 @@ export function calculateAuctionValues(input: CalculatorInput): CalculatorResult
         sourceValue: p.sourceValue,
         scaledValue: sv,
         auctionValue: 1,
+        dynamicValue: null,
         positionRank: globalPosRanks[p.id] ?? 0,
         overallRank: result.players.length + i + 1,
         tier,
@@ -363,6 +371,7 @@ function constructPlayerPool(
     ...p,
     scaledValue: p.sourceValue,
     auctionValue: 0,
+    dynamicValue: null,
     positionRank: 0,
     overallRank: 0,
     tier: 0,
@@ -444,7 +453,7 @@ function roundWithLargestRemainder(
   const floored = players.map((p) => {
     const floor = Math.floor(p.rawValue);
     floorSum += floor;
-    return { ...p, auctionValue: floor, remainder: p.rawValue - floor };
+    return { ...p, auctionValue: floor, dynamicValue: null, remainder: p.rawValue - floor };
   });
 
   // Take the budget target (total league budget), not sum of rounded

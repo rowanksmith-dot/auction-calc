@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import Link from "next/link";
 import {
   Calculator,
@@ -19,7 +19,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import type { LeagueSettings, PlayerWithValue } from "@/lib/types";
 import { DEFAULT_SETTINGS } from "@/lib/types";
 import { calculateAuctionValues } from "@/lib/auction-model/calculator";
-import { getFantasyCalcData, loadLocalFallback, clearDataCache } from "@/lib/fantasycalc/adapter";
+import { getFantasyCalcData, loadLocalFallback, mergePlayersWithValues, clearDataCache, type MergedPlayer } from "@/lib/fantasycalc/adapter";
 import { useAppStore } from "@/lib/store/store";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SettingsPanel } from "@/components/SettingsPanel";
@@ -32,44 +32,9 @@ type ViewMode = "list" | "board" | "draft";
 
 // ── Types ──
 
-interface RawPlayer {
-  id: number;
-  name: string;
-  team: string;
-  position: "QB" | "RB" | "WR" | "TE";
-  age: number;
-  sourceValue: number;
-  trend30: number | null;
-}
-
 interface DataState {
-  raw: RawPlayer[];
+  raw: MergedPlayer[];
   metadata: { timestamp: string; source: "api" | "fallback" | "cached" };
-}
-
-// ── Merge players + values ──
-
-function mergePlayers(
-  players: Array<{ id: number; name: string; position: string; maybeTeam: string | null; maybeAge: number }>,
-  values: Array<{ playerId: number; value: number; trend30Day?: number | null }>,
-): RawPlayer[] {
-  const valueMap = new Map(values.map((v) => [v.playerId, v]));
-  return players
-    .filter((p) => ["QB", "RB", "WR", "TE"].includes(p.position))
-    .map((p) => {
-      const v = valueMap.get(p.id);
-      return {
-        id: p.id,
-        name: p.name,
-        team: p.maybeTeam ?? "FA",
-        position: p.position as "QB" | "RB" | "WR" | "TE",
-        age: p.maybeAge ?? 25,
-        sourceValue: v?.value ?? 0,
-        trend30: v?.trend30Day ?? null,
-      };
-    })
-    .filter((p) => p.sourceValue > 0)
-    .sort((a, b) => b.sourceValue - a.sourceValue);
 }
 
 // ── URL helper ──
@@ -128,6 +93,12 @@ export default function Home() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const [copied, setCopied] = useState(false);
   const [restored, setRestored] = useState(false);
+  const [recalcInfo, setRecalcInfo] = useState<{
+    inflationPct: number;
+    thresholdRate: number;
+    remainingBudget: number;
+    projectedValue: number;
+  } | null>(null);
   // Sleeper import moved into DraftRoom
   const [fetchStats, setFetchStats] = useState<{
     count: number;
@@ -140,13 +111,13 @@ export default function Home() {
 
   // ── Data fetch (triggers when API-relevant settings change) ──
   const fetchKey = useMemo(() => {
-    return `${settings.format}|${settings.scoring}|${settings.qbFormat}|${settings.numTeams}`;
-  }, [settings.format, settings.scoring, settings.qbFormat, settings.numTeams]);
+    return `${settings.format}|${settings.scoring}|${settings.qbFormat}|${settings.numTeams}|${settings.tePremium}|${settings.tePremiumCustom}`;
+  }, [settings.format, settings.scoring, settings.qbFormat, settings.numTeams, settings.tePremium, settings.tePremiumCustom]);
 
   const prevFetchKeyRef = useRef<string | null>(null);
 
   // ── LocalStorage cache for player data ──
-  const CACHE_KEY = "auction-calc-player-cache";
+  const CACHE_KEY = `auction-cache-${settings.qbFormat}-${settings.scoring}-${settings.numTeams}`;
 
   function loadCachedPlayers(): DataState | null {
     try {
@@ -187,7 +158,7 @@ export default function Home() {
       setError(null);
     } else {
       // 2. No cache — show bundled fallback immediately
-      const fallbackRaw = mergePlayers(
+      const fallbackRaw = mergePlayersWithValues(
         loadLocalFallback().players,
         loadLocalFallback().values,
       );
@@ -209,7 +180,9 @@ export default function Home() {
     getFantasyCalcData(settings, ctrl.signal)
       .then((apiResult) => {
         if (cancelled || ctrl.signal.aborted) return;
-        const raw = mergePlayers(apiResult.players, apiResult.values);
+        const raw = apiResult.mergedPlayers.length > 0
+          ? apiResult.mergedPlayers
+          : mergePlayersWithValues(apiResult.players, apiResult.values);
         if (raw.length === 0) return;
         const data: DataState = {
           raw,
@@ -231,11 +204,12 @@ export default function Home() {
   }, [fetchKey, settings]);
 
   // ── Recalculate Prices (freeze drafted players, recompute undrafted with remaining budget) ──
-  function handleRecalculate(frozenDrafted: Set<number>) {
+  function handleRecalculate(frozenDrafted: Set<number>, actualSpent?: number, playerBids?: Map<number, number>) {
     if (!dataState) return;
 
     // Calculate actual money spent on drafted players (using winningBid, not projected value)
-    const actualSpentSoFar = allPlayers
+    // If actualSpent is provided (e.g. from Sleeper import), use it directly
+    const actualSpentSoFar = actualSpent ?? allPlayers
       .filter((p) => frozenDrafted.has(p.id))
       .reduce((sum, p) => sum + (p.winningBid ?? p.auctionValue), 0);
 
@@ -243,31 +217,66 @@ export default function Home() {
     const totalBudget = settings.numTeams * settings.budget;
     const remainingBudget = Math.max(0, totalBudget - actualSpentSoFar);
 
+    // Inflation % = actual spend / baseline value of drafted
+    // > 100% = drafted players went above baseline (overpay, inflation)
+    // < 100% = drafted players went below baseline (bargain, deflation)
+    const draftedBaselineValue = allPlayers
+      .filter((p) => frozenDrafted.has(p.id))
+      .reduce((sum, p) => sum + p.auctionValue, 0);
+    const inflationPct = draftedBaselineValue > 0
+      ? Math.round((actualSpentSoFar / draftedBaselineValue) * 100)
+      : 0;
+
+    // Remaining baseline: sum of original auction values for players in the draftable
+    // roster pool only (top N by sourceValue). Excludes players outside the pool
+    // who were assigned $1 by the calculator — those would skew the scale factor.
+    const rosterSize = settings.rosterSlots.reduce((s, r) => s + r.count, 0);
+    const totalPoolSize = settings.numTeams * rosterSize;
+    const undrafted = allPlayers.filter((p) => !frozenDrafted.has(p.id));
+    const remainingSlots = Math.max(0, totalPoolSize - frozenDrafted.size);
+    const poolPlayers = [...undrafted]
+      .sort((a, b) => b.sourceValue - a.sourceValue)
+      .slice(0, remainingSlots);
+    const remainingBaseline = poolPlayers.reduce((sum, p) => sum + p.auctionValue, 0);
+    // Scale factor to fit remaining budget while preserving original value ratios
+    const scale = remainingBaseline > 0 ? remainingBudget / remainingBaseline : 0;
+
     setCalculating(true);
-    requestAnimationFrame(() => {
-      try {
-        const result = calculateAuctionValues({
-          players: dataState.raw.filter((p) => !frozenDrafted.has(p.id)),
-          settings: {
-            ...settings,
-            budget: Math.round(remainingBudget / settings.numTeams),
-          },
-        });
-        // Merge frozen drafted state with new undrafted values
-        const merged = allPlayers.map((p) => {
-          if (frozenDrafted.has(p.id)) {
-            return { ...p, drafted: true };
-          }
-          const recalculated = result.players.find((rp) => rp.id === p.id);
-          return recalculated ? { ...recalculated, drafted: false } : { ...p, drafted: false };
-        });
-        setAllPlayers(merged);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Recalculation failed");
-      } finally {
-        setCalculating(false);
-      }
-    });
+    try {
+
+      // Store inflation data for display
+      setRecalcInfo({
+        inflationPct,
+        thresholdRate: 0,
+        remainingBudget,
+        projectedValue: 0,
+      });
+      console.log("[RECALC] done", { inflationPct, draftedBaselineValue, actualSpentSoFar, remainingBudget, remainingBaseline, scale });
+
+      // Merge frozen drafted state with new undrafted values
+      // Drafted: preserve ALL original fields, only clear dynamicValue.
+      // Preserve winningBid from playerBids map (passed by Sleeper import / manual recalculate).
+      // Undrafted: proportional redistribution of remaining budget based on original auction values
+      const merged = allPlayers.map((p) => {
+        if (frozenDrafted.has(p.id)) {
+          const bid = playerBids?.get(p.id);
+          return { ...p, drafted: true, dynamicValue: null, winningBid: bid ?? p.winningBid };
+        }
+        // Scale original auction value, floor at $1
+        const dynamicValue = Math.max(1, Math.round(p.auctionValue * scale));
+        return {
+          ...p,
+          dynamicValue,
+          drafted: false,
+        };
+      });
+      console.log("[RECALC] merged sample:", merged.slice(0, 3).map(p => ({ name: p.name, auctionValue: p.auctionValue, dynamicValue: p.dynamicValue })));
+      setAllPlayers(merged);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Recalculation failed");
+    } finally {
+      setCalculating(false);
+    }
   }
 
   // ── Recalculate auction values ──
@@ -307,8 +316,18 @@ export default function Home() {
   }
 
   function handleSaveSettings(next: LeagueSettings) {
+    const tepChanged = next.tePremium !== settings.tePremium
+      || next.tePremiumCustom !== settings.tePremiumCustom;
     setSettings(next);
     setRestored(false);
+
+    // Force recalculation when TEP changes so values reflect immediately
+    if (tepChanged && dataState && dataState.raw.length > 0) {
+      try {
+        const result = calculateAuctionValues({ players: dataState.raw, settings: next });
+        setAllPlayers(result.players);
+      } catch { /* calcKey effect will handle it */ }
+    }
   }
 
   function handleRestoreDefaults() {
@@ -316,9 +335,9 @@ export default function Home() {
     setRestored(true);
   }
 
-  function handleUpdatePlayers(updated: PlayerWithValue[]) {
+  const handleUpdatePlayers = useCallback((updated: PlayerWithValue[]) => {
     setAllPlayers(updated);
-  }
+  }, []);
 
   async function handleRefresh() {
     clearDataCache();
@@ -331,7 +350,9 @@ export default function Home() {
       abortControllerRef.current = controller;
       const result = await getFantasyCalcData(settings, controller.signal);
       if (controller.signal.aborted) return;
-      const raw = mergePlayers(result.players, result.values);
+      const raw = result.mergedPlayers.length > 0
+        ? result.mergedPlayers
+        : mergePlayersWithValues(result.players, result.values);
       const data: DataState = { raw, metadata: { timestamp: result.timestamp, source: result.source } };
       fetchCacheRef.current.set(fetchKey, { data, ts: Date.now() });
       setDataState(data);
@@ -370,7 +391,7 @@ export default function Home() {
     const scoringLabel =
       settings.scoring === "standard" ? "Standard" :
       settings.scoring === "halfPpr" ? "Half PPR" : "Full PPR";
-    const qbLabel = settings.qbFormat === "superflex" ? "Superflex" : "1QB";
+    const qbLabel = settings.qbFormat === "superflex" ? "Superflex" : settings.qbFormat === "twoQb" ? "2QB" : "1QB";
     const rosterCount = settings.rosterSlots.reduce((s, r) => s + r.count, 0);
     return `${settings.numTeams} teams · ${scoringLabel} · ${qbLabel} · $${settings.budget} budget · ${rosterCount} roster spots`;
   }, [settings]);
@@ -653,6 +674,7 @@ export default function Home() {
             onUpdatePlayers={handleUpdatePlayers}
             onRecalculate={handleRecalculate}
             onSettingsChange={handleSaveSettings}
+            recalcInfo={recalcInfo}
           />
         )}
 

@@ -100,17 +100,29 @@ export function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
     onChange({ ...settings, [key]: value });
   }
 
-  function handleSuperflexToggle(enabled: boolean) {
+  function handleQbFormat(format: "oneQb" | "superflex" | "twoQb") {
     const slotSettings = [...settings.rosterSlots];
     const sfIdx = slotSettings.findIndex((s) => s.type === "SUPERFLEX");
-    if (enabled && sfIdx === -1) {
-      slotSettings.push({ type: "SUPERFLEX", count: 1 });
-    } else if (!enabled && sfIdx !== -1) {
-      slotSettings.splice(sfIdx, 1);
+    const qbSlot = slotSettings.find((s) => s.type === "QB");
+
+    if (format === "superflex") {
+      // 1 QB + 1 SUPERFLEX
+      if (sfIdx === -1) slotSettings.push({ type: "SUPERFLEX", count: 1 });
+      if (qbSlot) qbSlot.count = 1;
+    } else if (format === "twoQb") {
+      // 2 QB, no SUPERFLEX
+      if (sfIdx !== -1) slotSettings.splice(sfIdx, 1);
+      if (qbSlot) qbSlot.count = 2;
+      else slotSettings.unshift({ type: "QB", count: 2 });
+    } else {
+      // 1QB: 1 QB, no SUPERFLEX
+      if (sfIdx !== -1) slotSettings.splice(sfIdx, 1);
+      if (qbSlot) qbSlot.count = 1;
     }
+
     onChange({
       ...settings,
-      qbFormat: enabled ? "superflex" : "oneQb",
+      qbFormat: format,
       rosterSlots: slotSettings,
     });
   }
@@ -234,15 +246,21 @@ export function SettingsPanel({ settings, onChange }: SettingsPanelProps) {
               <div className="flex gap-1.5">
                 <PillButton
                   selected={settings.qbFormat === "oneQb"}
-                  onClick={() => handleSuperflexToggle(false)}
+                  onClick={() => handleQbFormat("oneQb")}
                 >
                   1QB
                 </PillButton>
                 <PillButton
                   selected={settings.qbFormat === "superflex"}
-                  onClick={() => handleSuperflexToggle(true)}
+                  onClick={() => handleQbFormat("superflex")}
                 >
                   Superflex
+                </PillButton>
+                <PillButton
+                  selected={settings.qbFormat === "twoQb"}
+                  onClick={() => handleQbFormat("twoQb")}
+                >
+                  2QB
                 </PillButton>
               </div>
             </div>
