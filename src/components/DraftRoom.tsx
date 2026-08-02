@@ -30,7 +30,6 @@ interface Team {
 interface DraftRoomProps {
   players: PlayerWithValue[];
   settings: LeagueSettings;
-  onUpdatePlayers: (players: PlayerWithValue[]) => void;
   onRecalculate?: (frozenDraftedIds: Set<number>, actualSpent?: number, playerBids?: Map<number, number>) => void;
   onSettingsChange?: (settings: LeagueSettings) => void;
   recalcInfo?: {
@@ -58,7 +57,6 @@ const POS_COLORS: Record<string, { bg: string; text: string; border: string }> =
 export function DraftRoom({
   players,
   settings,
-  onUpdatePlayers,
   onRecalculate,
   onSettingsChange,
   recalcInfo,
@@ -148,25 +146,26 @@ export function DraftRoom({
   // ── Recalculate Prices ──
   // Freeze drafted players, re-run algorithm on undrafted
   function handleRecalculate() {
-    const storeDraftedIds = storeActions
-      .filter((a) => a.type === "DRAFT_PLAYER")
-      .map((a) => a.playerId);
-    const alreadyDraftedIds = players
-      .filter((p) => p.drafted && p.winningBid != null)
-      .map((p) => p.id);
-    const draftedIds = new Set([...storeDraftedIds, ...alreadyDraftedIds]);
-    const actualSpent = players
-      .filter((p) => draftedIds.has(p.id))
-      .reduce((sum, p) => sum + (p.winningBid ?? 0), 0);
-    // Build per-player bid map from current player state
+    // Build drafted IDs and bid map from store actions (not prop drafted state)
+    const draftActions = storeActions.filter((a) => a.type === "DRAFT_PLAYER");
+    const draftedIds = new Set(draftActions.map((a) => a.playerId));
     const playerBids = new Map<number, number>();
-    for (const p of players) {
-      if (draftedIds.has(p.id) && p.winningBid != null) {
-        playerBids.set(p.id, p.winningBid);
-      }
+    let actualSpent = 0;
+    for (const a of draftActions) {
+      playerBids.set(a.playerId, a.price);
+      actualSpent += a.price;
     }
     onRecalculate?.(draftedIds, actualSpent, playerBids);
   }
+
+  // ── Drafted player IDs from store (used for filtering, not prop-derived) ──
+  const storeDraftedIds = useMemo(() => {
+    return new Set(
+      storeActions
+        .filter((a) => a.type === "DRAFT_PLAYER")
+        .map((a) => a.playerId),
+    );
+  }, [storeActions]);
 
   // ── Replay derived state from action log ──
   const teamDefs = useMemo(() => storeTeamNames.map((n) => ({ name: n })), [storeTeamNames]);
@@ -231,20 +230,8 @@ export function DraftRoom({
   }, [replayResult, players, settings.budget]);
 
   // ── Sync drafted state back to parent (fire on store changes and initial mount, not on players changes to avoid loops) ──
-  useEffect(() => {
-    const updated = players.map((p) => {
-      const action = storeActions
-        .filter((a) => a.type === "DRAFT_PLAYER")
-        .find((a) => a.playerId === p.id);
-      if (!action) {
-        return { ...p, drafted: false, draftedBy: null, winningBid: null };
-      }
-      const teamName = storeTeamNames[action.teamIdx] ?? null;
-      return { ...p, drafted: true, draftedBy: teamName, winningBid: action.price as number };
-    });
-    onUpdatePlayers(updated);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeActions, storeTeamNames, onUpdatePlayers]);
+  // Draft state no longer needs to sync up to parent — List/Board views are independent.
+  // The DraftRoom uses its own Zustand store (storeDraftedIds) for filtering.
 
   const startDraft = useCallback(() => {
     const validNames = teamNameInputs
@@ -266,7 +253,7 @@ export function DraftRoom({
 
   function openBidModal(playerId: number) {
     const player = players.find((p) => p.id === playerId);
-    if (!player || player.drafted) return;
+    if (!player || storeDraftedIds.has(player.id)) return;
     setBidModal({ player });
     setBidAmount(String(player.auctionValue));
     setBidError(null);
@@ -1056,7 +1043,7 @@ export function DraftRoom({
         </div>
         <div className="p-2 max-h-[340px] overflow-y-auto">
           {players
-            .filter((p) => !p.drafted)
+            .filter((p) => !storeDraftedIds.has(p.id))
             .sort((a, b) => b.auctionValue - a.auctionValue)
             .map((p) => {
               const pc = POS_COLORS[p.position] ?? POS_COLORS.WR;
@@ -1094,7 +1081,7 @@ export function DraftRoom({
                 </div>
               );
             })}
-          {players.filter((p) => !p.drafted).length === 0 && (
+          {players.filter((p) => !storeDraftedIds.has(p.id)).length === 0 && (
             <p className="text-center text-muted-foreground py-8">
               All players have been drafted!
             </p>

@@ -197,30 +197,29 @@ function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
   }
 
   function exportCSV() {
+    // Headers match the list view column order
     const headers = [
-      "Rank",
       "Player",
+      "Auction $",
+      "Value",
       "Team",
-      "Position",
+      "Age",
+      "Rank",
+      "Pos",
       "Pos Rank",
-      "Auction Value",
-      "Source Value",
-      "Scaled Value",
       "Tier",
-      "Drafted",
     ];
     const rows = players.map((p) =>
       [
-        p.overallRank,
         p.name,
-        p.team,
+        `$${p.auctionValue}`,
+        Math.round(p.scaledValue),
+        teamAbbreviation(p.team),
+        p.age,
+        p.overallRank,
         p.position,
         p.positionRank,
-        p.auctionValue,
-        p.sourceValue,
-        p.scaledValue,
         p.tier,
-        p.drafted ? "Yes" : "No",
       ].join(","),
     );
     const csv = [headers.join(","), ...rows].join("\n");

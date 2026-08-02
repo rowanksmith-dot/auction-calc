@@ -253,22 +253,15 @@ export default function Home() {
       });
       console.log("[RECALC] done", { inflationPct, draftedBaselineValue, actualSpentSoFar, remainingBudget, remainingBaseline, scale });
 
-      // Merge frozen drafted state with new undrafted values
-      // Drafted: preserve ALL original fields, only clear dynamicValue.
-      // Preserve winningBid from playerBids map (passed by Sleeper import / manual recalculate).
-      // Undrafted: proportional redistribution of remaining budget based on original auction values
+      // Recalculate dynamic values only — draft state lives in DraftRoom's Zustand store,
+      // not in the shared player pool that List/Board views consume.
       const merged = allPlayers.map((p) => {
         if (frozenDrafted.has(p.id)) {
-          const bid = playerBids?.get(p.id);
-          return { ...p, drafted: true, dynamicValue: null, winningBid: bid ?? p.winningBid };
+          return { ...p, dynamicValue: null };
         }
         // Scale original auction value, floor at $1
         const dynamicValue = Math.max(1, Math.round(p.auctionValue * scale));
-        return {
-          ...p,
-          dynamicValue,
-          drafted: false,
-        };
+        return { ...p, dynamicValue };
       });
       console.log("[RECALC] merged sample:", merged.slice(0, 3).map(p => ({ name: p.name, auctionValue: p.auctionValue, dynamicValue: p.dynamicValue })));
       setAllPlayers(merged);
@@ -334,10 +327,6 @@ export default function Home() {
     resetAllState();
     setRestored(true);
   }
-
-  const handleUpdatePlayers = useCallback((updated: PlayerWithValue[]) => {
-    setAllPlayers(updated);
-  }, []);
 
   async function handleRefresh() {
     clearDataCache();
@@ -671,7 +660,6 @@ export default function Home() {
           <DraftRoom
             players={allPlayers}
             settings={settings}
-            onUpdatePlayers={handleUpdatePlayers}
             onRecalculate={handleRecalculate}
             onSettingsChange={handleSaveSettings}
             recalcInfo={recalcInfo}
