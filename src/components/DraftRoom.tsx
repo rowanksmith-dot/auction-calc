@@ -11,7 +11,7 @@ import {
   Edit3,
   Database,
 } from "lucide-react";
-import { cn, formatCurrency, valueIndicator } from "@/lib/utils";
+import { cn, formatCurrency, valueIndicator, teamAbbreviation } from "@/lib/utils";
 import type { PlayerWithValue, LeagueSettings, RosterSlotType } from "@/lib/types";
 import { validateTeamName } from "@/lib/validation/settings";
 import { useAppStore } from "@/lib/store/store";
@@ -369,6 +369,42 @@ export function DraftRoom({
     input.click();
   }
 
+  function exportDraftCSV() {
+    // Build price map from store draft actions
+    const priceMap = new Map<number, number>();
+    for (const a of storeActions) {
+      if (a.type === "DRAFT_PLAYER") priceMap.set(a.playerId, a.price);
+    }
+
+    const headers = [
+      "Player", "Auction $", "Value", "Team", "Age",
+      "Rank", "Pos", "Pos Rank", "Tier", "Paid",
+    ];
+    const rows = players.map((p) => {
+      const paid = priceMap.get(p.id);
+      return [
+        p.name,
+        `$${p.auctionValue}`,
+        Math.round(p.scaledValue),
+        teamAbbreviation(p.team),
+        p.age,
+        p.overallRank,
+        p.position,
+        p.positionRank,
+        p.tier,
+        paid != null ? `$${paid}` : "",
+      ].join(",");
+    });
+    const csv = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "draft-results.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function getRosterCount(type: string): number {
     return settings.rosterSlots.find((s) => s.type === type as RosterSlotType)?.count ?? 0;
   }
@@ -579,6 +615,50 @@ export function DraftRoom({
             >
               <RefreshCw size={10} />
               Reload Draft
+            </button>
+            <button
+              onClick={() => {
+                // Build price map from Sleeper purchases (match by normalized name)
+                const priceMap = new Map<string, number>();
+                for (const team of Object.values(sleeperData.teams)) {
+                  for (const p of team.purchases) {
+                    if (!p.fullName.startsWith("No ")) {
+                      priceMap.set(normalizeName(p.fullName), p.auctionPrice);
+                    }
+                  }
+                }
+                const headers = [
+                  "Player", "Auction $", "Value", "Team", "Age",
+                  "Rank", "Pos", "Pos Rank", "Tier", "Paid",
+                ];
+                const rows = players.map((p) => {
+                  const paid = priceMap.get(normalizeName(p.name));
+                  return [
+                    p.name,
+                    `$${p.auctionValue}`,
+                    Math.round(p.scaledValue),
+                    teamAbbreviation(p.team),
+                    p.age,
+                    p.overallRank,
+                    p.position,
+                    p.positionRank,
+                    p.tier,
+                    paid != null ? `$${paid}` : "",
+                  ].join(",");
+                });
+                const csv = [headers.join(","), ...rows].join("\n");
+                const blob = new Blob([csv], { type: "text/csv" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "sleeper-draft-results.csv";
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50 border border-green-300 dark:border-green-700 transition-colors"
+            >
+              <Download size={10} />
+              CSV
             </button>
             {recalcInfo && recalcInfo.inflationPct > 0 ? (
               <span className="text-[10px] text-muted-foreground px-2 py-1 rounded-md bg-muted/50">
@@ -853,6 +933,13 @@ export function DraftRoom({
         >
           <Upload size={12} />
           Import
+        </button>
+        <button
+          onClick={exportDraftCSV}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50 border border-green-300 dark:border-green-700 transition-colors"
+        >
+          <Download size={12} />
+          CSV
         </button>
         <button
           onClick={() => setShowThresholdConfig(!showThresholdConfig)}
