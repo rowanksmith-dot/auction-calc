@@ -662,6 +662,10 @@ export default function Home() {
             settings={settings}
             onRecalculate={handleRecalculate}
             onSettingsChange={handleSaveSettings}
+            onReset={() => {
+              setRecalcInfo(null);
+              setAllPlayers((prev) => prev.map((p) => ({ ...p, dynamicValue: null })));
+            }}
             recalcInfo={recalcInfo}
           />
         )}

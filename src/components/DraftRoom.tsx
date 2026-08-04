@@ -32,6 +32,7 @@ interface DraftRoomProps {
   settings: LeagueSettings;
   onRecalculate?: (frozenDraftedIds: Set<number>, actualSpent?: number, playerBids?: Map<number, number>) => void;
   onSettingsChange?: (settings: LeagueSettings) => void;
+  onReset?: () => void;
   recalcInfo?: {
     inflationPct: number;
     thresholdRate: number;
@@ -59,6 +60,7 @@ export function DraftRoom({
   settings,
   onRecalculate,
   onSettingsChange,
+  onReset,
   recalcInfo,
 }: DraftRoomProps) {
   // ── Zustand store ──
@@ -288,6 +290,7 @@ export function DraftRoom({
   function resetDraft() {
     if (!window.confirm("Reset the entire draft? This cannot be undone.")) return;
     resetDraftStore();
+    onReset?.();
   }
 
   function editWinningBid(teamIdx: number, playerIdx: number) {
