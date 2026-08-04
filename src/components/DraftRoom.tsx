@@ -78,6 +78,7 @@ export function DraftRoom({
     const hasStored = typeof window !== "undefined" && localStorage.getItem("acSleeperDraft");
     return storeTeamNames.length === 0 && !hasStored;
   });
+  const [setupMode, setSetupMode] = useState<null | 'sleeper' | 'simulate'>(null);
   const [showThresholdConfig, setShowThresholdConfig] = useState(false);
   const [showSleeperImport, setShowSleeperImport] = useState(false);
   // Persisted in localStorage so it survives reloads
@@ -429,72 +430,126 @@ export function DraftRoom({
   const thresholds = storeThresholds;
   const draftActionCount = storeActions.length;
 
-  if (showSetup && !sleeperData) {
+  // ── Two-option landing screen ──
+  if (showSetup && !sleeperData && setupMode === null) {
     return (
       <div className="bg-card border border-border rounded-xl p-6">
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-6">
           <Users size={20} className="text-primary" />
-          <h2 className="text-lg font-semibold">Draft Room Setup</h2>
+          <h2 className="text-lg font-semibold">Draft Room</h2>
         </div>
 
-        {/* Sleeper Import Section */}
-        {showSleeperImport ? (
-          <div className="mb-4 pb-4 border-b border-border">
-            <h3 className="text-sm font-medium mb-2">Import from Sleeper</h3>
-            <SleeperImport
-              onImport={(data) => {
-                try { localStorage.setItem("acSleeperDraft", JSON.stringify(data)); } catch {}
-                // Pre-fill team names from Sleeper data
-                const sortedTeams = Object.values(data.teams)
-                  .sort((a, b) => a.rosterId - b.rosterId);
-                const teamNames = sortedTeams.map((t) => t.teamName);
-                setTeamNameInputs(teamNames);
-                setSleeperData(data);
-                setShowSleeperImport(false);
+        <p className="text-sm text-muted-foreground mb-5">
+          Choose how you want to get started:
+        </p>
 
-                // Auto-apply league settings if available
-                if (data.leagueSettings && onSettingsChange) {
-                  const ls = data.leagueSettings;
-                  const rosterSlots = Object.entries(ls.rosterSettings)
-                    .filter(([, count]) => count > 0)
-                    .map(([type, count]) => ({ type: type as RosterSlotType, count }));
-                  onSettingsChange({
-                    ...settings,
-                    numTeams: ls.numTeams,
-                    scoring: ls.scoring,
-                    qbFormat: ls.qbFormat,
-                    budget: ls.budget,
-                    rosterSlots,
-                    tePremium: ls.tePremium ?? "off",
-                    tePremiumCustom: ls.tePremiumCustom ?? 0,
-                  });
-                  setImportedSettingsApplied(true);
-                }
-              }}
-              onCancel={() => setShowSleeperImport(false)}
-            />
-          </div>
-        ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Import from Sleeper */}
           <button
-            onClick={() => setShowSleeperImport(true)}
-            className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-border text-sm text-muted-foreground hover:text-foreground hover:border-primary/50 transition-all mb-4"
+            onClick={() => setSetupMode('sleeper')}
+            className="flex flex-col items-center gap-3 p-6 rounded-xl border-2 border-dashed border-border hover:border-primary/50 hover:bg-primary/5 transition-all text-left"
           >
-            <Database size={16} />
-            <span>Import from Sleeper</span>
-            <span className="text-xs text-muted-foreground ml-auto">
-              Draft results + league settings
-            </span>
+            <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+              <Database size={24} className="text-blue-400" />
+            </div>
+            <div className="text-center">
+              <h3 className="text-sm font-semibold">Import from Sleeper</h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Load draft results + league settings from a completed Sleeper auction
+              </p>
+            </div>
           </button>
-        )}
 
-        {/* OR divider */}
-        <div className="relative mb-4">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t border-border" />
+          {/* Simulate Draft */}
+          <button
+            onClick={() => setSetupMode('simulate')}
+            className="flex flex-col items-center gap-3 p-6 rounded-xl border-2 border-dashed border-border hover:border-primary/50 hover:bg-primary/5 transition-all text-left"
+          >
+            <div className="w-12 h-12 rounded-xl bg-green-500/10 border border-green-500/20 flex items-center justify-center">
+              <Users size={24} className="text-green-400" />
+            </div>
+            <div className="text-center">
+              <h3 className="text-sm font-semibold">Simulate Draft</h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Run a live auction with custom team names and values
+              </p>
+            </div>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Sleeper import view (setupMode === 'sleeper') ──
+  if (showSetup && !sleeperData && setupMode === 'sleeper') {
+    return (
+      <div className="bg-card border border-border rounded-xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Database size={20} className="text-blue-400" />
+            <h2 className="text-lg font-semibold">Import from Sleeper</h2>
           </div>
-          <div className="relative flex justify-center">
-            <span className="bg-card px-2 text-xs text-muted-foreground">OR</span>
+          <button
+            onClick={() => setSetupMode(null)}
+            className="text-xs text-muted-foreground hover:text-foreground underline"
+          >
+            ← Back
+          </button>
+        </div>
+
+        <p className="text-sm text-muted-foreground mb-4">
+          Paste a Sleeper draft URL or ID to import draft results and league settings.
+        </p>
+
+        <SleeperImport
+          onImport={(data) => {
+            try { localStorage.setItem("acSleeperDraft", JSON.stringify(data)); } catch {}
+            const sortedTeams = Object.values(data.teams)
+              .sort((a, b) => a.rosterId - b.rosterId);
+            const teamNames = sortedTeams.map((t) => t.teamName);
+            setTeamNameInputs(teamNames);
+            setSleeperData(data);
+            setShowSleeperImport(false);
+
+            if (data.leagueSettings && onSettingsChange) {
+              const ls = data.leagueSettings;
+              const rosterSlots = Object.entries(ls.rosterSettings)
+                .filter(([, count]) => count > 0)
+                .map(([type, count]) => ({ type: type as RosterSlotType, count }));
+              onSettingsChange({
+                ...settings,
+                numTeams: ls.numTeams,
+                scoring: ls.scoring,
+                qbFormat: ls.qbFormat,
+                budget: ls.budget,
+                rosterSlots,
+                tePremium: ls.tePremium ?? "off",
+                tePremiumCustom: ls.tePremiumCustom ?? 0,
+              });
+              setImportedSettingsApplied(true);
+            }
+          }}
+          onCancel={() => setSetupMode(null)}
+        />
+      </div>
+    );
+  }
+
+  // ── Simulate draft setup view (setupMode === 'simulate') ──
+  if (showSetup && !sleeperData && setupMode === 'simulate') {
+    return (
+      <div className="bg-card border border-border rounded-xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Users size={20} className="text-primary" />
+            <h2 className="text-lg font-semibold">Draft Room Setup</h2>
           </div>
+          <button
+            onClick={() => setSetupMode(null)}
+            className="text-xs text-muted-foreground hover:text-foreground underline"
+          >
+            ← Back
+          </button>
         </div>
 
         <p className="text-sm text-muted-foreground mb-4">
@@ -824,16 +879,12 @@ export function DraftRoom({
                   <div>
                     {/* Column headers */}
                     <div className="flex items-center gap-2 px-3 py-1.5 mb-0.5 text-[10px] text-muted-foreground font-medium">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <span className="w-[26px] shrink-0 text-center">Pos</span>
-                        <span className="w-12 text-right shrink-0">Val</span>
-                        <span className="w-8 text-right shrink-0">Rk</span>
-                        <span className="flex-1">Player</span>
-                      </div>
-                      <div className="flex items-center gap-4 shrink-0">
-                        {hasDynamic && <span className="w-[72px] text-right shrink-0 text-amber-600 dark:text-amber-400">Dynamic</span>}
-                        <span className="w-[72px] text-right shrink-0">Auction</span>
-                      </div>
+                      <span className="w-[26px] shrink-0 text-center">Pos</span>
+                      <span className="w-12 text-right shrink-0">Val</span>
+                      <span className="w-8 text-right shrink-0">Rk</span>
+                      <span className="flex-1 min-w-0">Player</span>
+                      {hasDynamic && <span className="w-[72px] text-right shrink-0 text-amber-600 dark:text-amber-400">Dynamic</span>}
+                      <span className="w-[72px] text-right shrink-0">Auction</span>
                     </div>
                     {available.map((p) => {
                     const pc = POS_COLORS[p.position] ?? POS_COLORS.WR;
@@ -841,29 +892,24 @@ export function DraftRoom({
                       <div key={p.id}
                         className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors text-left"
                       >
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <span className={cn("text-[10px] font-bold uppercase px-0 py-0.5 rounded shrink-0 text-center w-[26px]", pc.bg, pc.text)}>
-                            {p.position}
+                        <span className={cn("text-[10px] font-bold uppercase px-0 py-0.5 rounded shrink-0 text-center w-[26px]", pc.bg, pc.text)}>
+                          {p.position}
+                        </span>
+                        <span className="text-[11px] font-mono tabular-nums text-muted-foreground shrink-0 w-12 text-right">
+                          {p.scaledValue.toFixed(0)}
+                        </span>
+                        <span className="text-xs font-mono tabular-nums text-muted-foreground w-8 text-right shrink-0">
+                          {p.overallRank}
+                        </span>
+                        <span className="text-sm font-medium truncate flex-1 min-w-0">{p.name} <span className="text-[10px] text-muted-foreground font-mono">{teamAbbreviation(p.team)}</span></span>
+                        {hasDynamic && (
+                          <span className="text-sm font-mono tabular-nums font-semibold text-amber-600 dark:text-amber-400 w-[72px] text-right shrink-0">
+                            {p.dynamicValue != null ? formatCurrency(p.dynamicValue) : "—"}
                           </span>
-                          <span className="text-[11px] font-mono tabular-nums text-muted-foreground shrink-0 w-12 text-right">
-                            {p.scaledValue.toFixed(0)}
-                          </span>
-                          <span className="text-xs font-mono tabular-nums text-muted-foreground w-8 text-right shrink-0">
-                            {p.overallRank}
-                          </span>
-                          <span className="text-sm font-medium truncate">{p.name}</span>
-                          <span className="text-[10px] text-muted-foreground font-mono">{p.team}</span>
-                        </div>
-                        <div className="flex items-center gap-4 shrink-0">
-                          {hasDynamic && (
-                            <span className="text-sm font-mono tabular-nums font-semibold text-amber-600 dark:text-amber-400 w-[72px] text-right shrink-0">
-                              {p.dynamicValue != null ? formatCurrency(p.dynamicValue) : "—"}
-                            </span>
-                          )}
-                          <span className="text-sm font-mono tabular-nums font-normal text-muted-foreground w-[72px] text-right shrink-0">
-                            {formatCurrency(p.auctionValue)}
-                          </span>
-                        </div>
+                        )}
+                        <span className="text-sm font-mono tabular-nums font-normal text-muted-foreground w-[72px] text-right shrink-0">
+                          {formatCurrency(p.auctionValue)}
+                        </span>
                       </div>
                     );
                   })}
@@ -941,54 +987,10 @@ export function DraftRoom({
           <Download size={12} />
           CSV
         </button>
-        <button
-          onClick={() => setShowThresholdConfig(!showThresholdConfig)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
-        >
-          <Edit3 size={12} />
-          Thresholds
-        </button>
         <div className="text-xs text-muted-foreground ml-auto">
           {draftActionCount} picks
         </div>
       </div>
-
-      {/* Threshold config */}
-      {showThresholdConfig && (
-        <div className="bg-card border border-border rounded-xl p-3">
-          <h3 className="text-xs font-semibold mb-2">Value Thresholds</h3>
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="block text-xs font-medium mb-1">Bargain (below)</label>
-              <input
-                type="number"
-                min={0.5}
-                max={1}
-                step={0.01}
-                value={thresholds.bargain}
-                onChange={(e) =>
-                  setThresholds({ ...thresholds, bargain: parseFloat(e.target.value) || 0.85 })
-                }
-                className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-xs font-medium mb-1">Overpay (above)</label>
-              <input
-                type="number"
-                min={1}
-                max={2}
-                step={0.01}
-                value={thresholds.overpay}
-                onChange={(e) =>
-                  setThresholds({ ...thresholds, overpay: parseFloat(e.target.value) || 1.15 })
-                }
-                className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
-              />
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Team cards row */}
       <div className="flex gap-2 overflow-x-auto pb-2">
@@ -1129,50 +1131,61 @@ export function DraftRoom({
           </div>
         </div>
         <div className="p-2 max-h-[340px] overflow-y-auto">
-          {players
-            .filter((p) => !storeDraftedIds.has(p.id))
-            .sort((a, b) => b.auctionValue - a.auctionValue)
-            .map((p) => {
-              const pc = POS_COLORS[p.position] ?? POS_COLORS.WR;
-              const plTeam = teams[selectedTeam] ?? { budget: 0, spent: 0, players: [], name: "" };
-              return (
-                <div
-                  key={p.id}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-muted transition-colors text-left"
-                >
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <span className={cn("text-[10px] font-bold uppercase px-0 py-0.5 rounded shrink-0 text-center w-[26px]", pc.bg, pc.text)}>
-                      {p.position}
-                    </span>
-                    <span className="text-[11px] font-mono tabular-nums text-muted-foreground shrink-0 w-12 text-right">
-                      {p.scaledValue.toFixed(0)}
-                    </span>
-                    <span className="text-xs font-mono tabular-nums text-muted-foreground w-8 text-right shrink-0">
-                      {p.overallRank}
-                    </span>
-                    <span className="text-sm font-medium truncate">
-                      {p.name}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      {p.team}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0 pl-2">
-                    <span className="text-sm font-mono tabular-nums font-semibold">
-                      {formatCurrency(p.auctionValue)}
-                    </span>
-                    <span className="px-2.5 py-1 rounded-md bg-primary text-primary-foreground text-xs font-semibold cursor-pointer hover:bg-primary/90 transition-colors border border-primary/40" onClick={() => openBidModal(p.id)}>
-                      Bid
-                    </span>
-                  </div>
+          {(() => {
+            const available = players
+              .filter((p) => !storeDraftedIds.has(p.id))
+              .sort((a, b) => b.auctionValue - a.auctionValue);
+            const hasDynamic = available.some((p) => p.dynamicValue != null);
+            return (
+              <>
+                {/* Column headers */}
+                <div className="flex items-center gap-2 px-3 py-1.5 mb-0.5 text-[10px] text-muted-foreground font-medium">
+                  <span className="w-[26px] shrink-0 text-center">Pos</span>
+                  <span className="w-12 text-right shrink-0">Val</span>
+                  <span className="w-8 text-right shrink-0">Rk</span>
+                  <span className="flex-1 min-w-0">Player</span>
+                  {hasDynamic && <span className="w-[72px] text-right shrink-0 text-amber-600 dark:text-amber-400">Dynamic</span>}
+                  <span className="w-[72px] text-right shrink-0">Auction</span>
+                  <span className="px-2.5 py-1 rounded-md text-xs font-semibold shrink-0 invisible">Bid</span>
                 </div>
-              );
-            })}
-          {players.filter((p) => !storeDraftedIds.has(p.id)).length === 0 && (
-            <p className="text-center text-muted-foreground py-8">
-              All players have been drafted!
-            </p>
-          )}
+                {available.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-8">All players have been drafted!</p>
+                ) : (
+                  available.map((p) => {
+                    const pc = POS_COLORS[p.position] ?? POS_COLORS.WR;
+                    return (
+                      <div
+                        key={p.id}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors text-left"
+                      >
+                        <span className={cn("text-[10px] font-bold uppercase px-0 py-0.5 rounded shrink-0 text-center w-[26px]", pc.bg, pc.text)}>
+                          {p.position}
+                        </span>
+                        <span className="text-[11px] font-mono tabular-nums text-muted-foreground shrink-0 w-12 text-right">
+                          {p.scaledValue.toFixed(0)}
+                        </span>
+                        <span className="text-xs font-mono tabular-nums text-muted-foreground w-8 text-right shrink-0">
+                          {p.overallRank}
+                        </span>
+                        <span className="text-sm font-medium truncate flex-1 min-w-0">{p.name} <span className="text-[10px] text-muted-foreground font-mono">{teamAbbreviation(p.team)}</span></span>
+                        {hasDynamic && (
+                          <span className="text-sm font-mono tabular-nums font-semibold text-amber-600 dark:text-amber-400 w-[72px] text-right shrink-0">
+                            {p.dynamicValue != null ? formatCurrency(p.dynamicValue) : "—"}
+                          </span>
+                        )}
+                        <span className="text-sm font-mono tabular-nums font-semibold w-[72px] text-right shrink-0">
+                          {formatCurrency(p.auctionValue)}
+                        </span>
+                        <span className="px-2.5 py-1 rounded-md bg-primary text-primary-foreground text-xs font-semibold cursor-pointer hover:bg-primary/90 transition-colors border border-primary/40 shrink-0" onClick={() => openBidModal(p.id)}>
+                          Bid
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </>
+            );
+          })()}
         </div>
       </div>
 
