@@ -952,7 +952,6 @@ export function DraftRoom({
         {recalcInfo && recalcInfo.inflationPct > 0 ? (
           <span className="text-[10px] text-muted-foreground px-2 py-1 rounded-md bg-muted/50">
             Inflation: <span className={recalcInfo.inflationPct > 100 ? "text-red-500 font-semibold" : "text-green-500 font-semibold"}>{recalcInfo.inflationPct}%</span>
-            {" · "}Threshold: {Math.round(recalcInfo.thresholdRate * 100)}%
           </span>
         ) : (
           <span className="text-[10px] text-muted-foreground px-2 py-1 rounded-md bg-muted/50">
