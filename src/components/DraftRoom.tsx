@@ -66,11 +66,13 @@ export function DraftRoom({
   // ── Zustand store ──
   const storeActions = useAppStore((s) => s.actions);
   const storeTeamNames = useAppStore((s) => s.teamNames);
+  const storeTeamBudgets = useAppStore((s) => s.teamBudgets);
   const storeThresholds = useAppStore((s) => s.thresholds);
   const draftPlayer = useAppStore((s) => s.draftPlayer);
   const undoLastAction = useAppStore((s) => s.undoLastAction);
   const resetDraftStore = useAppStore((s) => s.resetDraft);
   const setTeamNames = useAppStore((s) => s.setTeamNames);
+  const setTeamBudgets = useAppStore((s) => s.setTeamBudgets);
   const setThresholds = useAppStore((s) => s.setThresholds);
   const removeDraftAction = useAppStore((s) => s.removeDraftAction);
 
@@ -108,6 +110,8 @@ export function DraftRoom({
   } | null>(null);
   const [bidAmount, setBidAmount] = useState("");
   const [bidError, setBidError] = useState<string | null>(null);
+  const [editTeamBudget, setEditTeamBudget] = useState<{ teamIdx: number; name: string; currentBudget: number } | null>(null);
+  const [editTeamBudgetInput, setEditTeamBudgetInput] = useState("");
 
   // ── Auto-recalculate after Sleeper import applies settings ──
   useEffect(() => {
@@ -187,12 +191,13 @@ export function DraftRoom({
         })),
         settings,
         teams: teamDefs,
+        teamBudgets: storeTeamBudgets,
         actions: storeActions,
       });
     } catch {
       return null;
     }
-  }, [players, settings, teamDefs, storeActions]);
+  }, [players, settings, teamDefs, storeTeamBudgets, storeActions]);
 
   // ── Build Team objects from replay state ──
   const teams: Team[] = useMemo(() => {
@@ -223,14 +228,15 @@ export function DraftRoom({
           trend30: null,
         };
       });
+      const teamBudget = storeTeamBudgets[idx] ?? settings.budget;
       return {
         name: ts.name,
-        budget: settings.budget,
+        budget: teamBudget > 0 ? teamBudget : settings.budget,
         spent: ts.spent,
         players: teamPlayers,
       };
     });
-  }, [replayResult, players, settings.budget]);
+  }, [replayResult, players, settings.budget, storeTeamBudgets]);
 
   // ── Sync drafted state back to parent (fire on store changes and initial mount, not on players changes to avoid loops) ──
   // Draft state no longer needs to sync up to parent — List/Board views are independent.
@@ -249,10 +255,14 @@ export function DraftRoom({
       return count > 0 ? `${name} ${count + 1}` : name;
     });
 
+    // Initialize all teams with the league settings budget
+    const defaultBudgets = Array.from({ length: settings.numTeams }, () => settings.budget);
+
     setTeamNames(uniqueNames);
+    setTeamBudgets(defaultBudgets);
     setSelectedTeam(0);
     setShowSetup(false);
-  }, [teamNameInputs, settings.numTeams, setTeamNames]);
+  }, [teamNameInputs, settings.numTeams, settings.budget, setTeamNames, setTeamBudgets]);
 
   function openBidModal(playerId: number) {
     const player = players.find((p) => p.id === playerId);
@@ -330,6 +340,7 @@ export function DraftRoom({
       version: 1,
       actions: storeActions,
       teamNames: storeTeamNames,
+      teamBudgets: storeTeamBudgets,
       thresholds: storeThresholds,
     };
     const blob = new Blob([JSON.stringify(state, null, 2)], {
@@ -360,9 +371,11 @@ export function DraftRoom({
           useAppStore.setState({
             actions: state.actions,
             teamNames: state.teamNames,
+            teamBudgets: state.teamBudgets || [],
             thresholds: state.thresholds || { bargain: 0.85, overpay: 1.15 },
           });
           setTeamNames(state.teamNames);
+          if (state.teamBudgets?.length) setTeamBudgets(state.teamBudgets);
           setThresholds(state.thresholds || { bargain: 0.85, overpay: 1.15 });
           setShowSetup(false);
         }
@@ -1008,7 +1021,7 @@ export function DraftRoom({
               key={i}
               onClick={() => setSelectedTeam(i)}
               className={cn(
-                "flex flex-col rounded-xl border text-left transition-all shrink-0",
+                "group flex flex-col rounded-xl border text-left transition-all shrink-0",
                 "w-[170px]",
                 isSelected
                   ? "border-primary bg-primary/5 ring-2 ring-primary/30 shadow-sm"
@@ -1020,8 +1033,21 @@ export function DraftRoom({
                 <div className={cn("text-sm truncate", isSelected && "font-bold")}>
                   {team.name}
                 </div>
-                <div className={cn("text-lg tabular-nums mt-0.5", isSelected ? "font-extrabold" : "font-bold")}>
-                  {formatCurrency(rem)}
+                <div className="flex items-center gap-1.5">
+                  <div className={cn("text-lg tabular-nums mt-0.5", isSelected ? "font-extrabold" : "font-bold")}>
+                    {formatCurrency(rem)}
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditTeamBudget({ teamIdx: i, name: team.name, currentBudget: team.budget });
+                      setEditTeamBudgetInput(String(team.budget));
+                    }}
+                    className="opacity-0 group-hover:opacity-100 mt-0.5 text-muted-foreground hover:text-foreground transition-all p-0.5 rounded hover:bg-muted"
+                    title="Edit team budget"
+                  >
+                    <Edit3 size={10} />
+                  </button>
                 </div>
                 <div className="text-[10px] text-muted-foreground mt-0.5">
                   Max bid: {formatCurrency(maxBid)}
@@ -1246,6 +1272,63 @@ export function DraftRoom({
                 className="flex-1 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors"
               >
                 Confirm Bid
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit team budget modal */}
+      {editTeamBudget !== null && (
+        <div className="fixed inset-0 bg-black z-50 flex items-center justify-center px-4">
+          <div className="bg-card rounded-xl border border-border p-6 max-w-sm w-full">
+            <h3 className="text-lg font-semibold mb-1">Edit Team Budget</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Change the starting budget for <span className="font-medium text-foreground">{editTeamBudget.name}</span>
+            </p>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm text-muted-foreground">$</span>
+              <input
+                type="number"
+                min={1}
+                value={editTeamBudgetInput}
+                onChange={(e) => setEditTeamBudgetInput(e.target.value)}
+                className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-lg font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const val = parseInt(editTeamBudgetInput);
+                    if (!isNaN(val) && val > 0) {
+                      const next = [...storeTeamBudgets];
+                      next[editTeamBudget!.teamIdx] = val;
+                      setTeamBudgets(next);
+                    }
+                    setEditTeamBudget(null);
+                  }
+                  if (e.key === "Escape") setEditTeamBudget(null);
+                }}
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setEditTeamBudget(null)}
+                className="flex-1 py-2 rounded-lg bg-secondary text-secondary-foreground font-medium text-sm hover:bg-secondary/80 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const val = parseInt(editTeamBudgetInput);
+                  if (!isNaN(val) && val > 0) {
+                    const next = [...storeTeamBudgets];
+                    next[editTeamBudget!.teamIdx] = val;
+                    setTeamBudgets(next);
+                  }
+                  setEditTeamBudget(null);
+                }}
+                className="flex-1 py-2 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors"
+              >
+                Save
               </button>
             </div>
           </div>

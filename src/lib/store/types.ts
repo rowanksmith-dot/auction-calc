@@ -67,6 +67,7 @@ export interface ReplayInput {
   }>;
   settings: LeagueSettings;
   teams: Array<{ name: string }>;
+  teamBudgets?: number[];
   actions: AuctionAction[];
 }
 

@@ -19,6 +19,7 @@ export interface AppState {
   activeView: ViewMode;
   selectedTeamIdx: number | null;
   teamNames: string[];
+  teamBudgets: number[];
   thresholds: { bargain: number; overpay: number };
   settings: LeagueSettings;
 
@@ -35,6 +36,7 @@ export interface AppState {
   setActiveView: (view: ViewMode) => void;
   setSelectedTeamIdx: (idx: number | null) => void;
   setTeamNames: (names: string[]) => void;
+  setTeamBudgets: (budgets: number[]) => void;
   setThresholds: (thresholds: { bargain: number; overpay: number }) => void;
   setSettings: (settings: LeagueSettings) => void;
   toggleFavorite: (playerId: number) => void;
@@ -66,6 +68,7 @@ export const useAppStore = create<AppState>()(
       activeView: "list",
       selectedTeamIdx: null,
       teamNames: [],
+      teamBudgets: [],
       thresholds: { bargain: 0.85, overpay: 1.15 },
       settings: { ...DEFAULT_SETTINGS },
 
@@ -166,6 +169,10 @@ export const useAppStore = create<AppState>()(
         set({ teamNames: names });
       },
 
+      setTeamBudgets: (budgets: number[]) => {
+        set({ teamBudgets: budgets });
+      },
+
       setThresholds: (thresholds: { bargain: number; overpay: number }) => {
         set({ thresholds });
       },
@@ -202,6 +209,7 @@ export const useAppStore = create<AppState>()(
           activeView: "list",
           selectedTeamIdx: null,
           teamNames: [],
+          teamBudgets: [],
           thresholds: { bargain: 0.85, overpay: 1.15 },
           settings: { ...DEFAULT_SETTINGS },
           showDiagnostics: false,
@@ -217,6 +225,7 @@ export const useAppStore = create<AppState>()(
         activeView: state.activeView,
         selectedTeamIdx: state.selectedTeamIdx,
         teamNames: state.teamNames,
+        teamBudgets: state.teamBudgets,
         thresholds: state.thresholds,
         settings: state.settings,
       }),
@@ -235,6 +244,7 @@ export const useAppStore = create<AppState>()(
               ? null
               : p.selectedTeamIdx,
           teamNames: Array.isArray(p.teamNames) ? p.teamNames : [],
+          teamBudgets: Array.isArray(p.teamBudgets) ? p.teamBudgets : [],
           thresholds: isThresholds(p.thresholds) ? p.thresholds : { bargain: 0.85, overpay: 1.15 },
           settings: p.settings && typeof p.settings === "object"
             ? { ...DEFAULT_SETTINGS, ...p.settings }

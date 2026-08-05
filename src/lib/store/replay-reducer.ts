@@ -25,7 +25,14 @@ export function replayAuctionActions(input: ReplayInput): {
   teams: Map<number, TeamState>;
   teamStates: TeamState[];
 } {
-  const { players, settings, teams, actions } = input;
+  const { players, settings, teams, actions, teamBudgets } = input;
+
+  const getTeamBudget = (teamIdx: number): number => {
+    if (teamBudgets && teamIdx < teamBudgets.length && teamBudgets[teamIdx] > 0) {
+      return teamBudgets[teamIdx];
+    }
+    return settings.budget;
+  };
   const rosterSize = getRosterSize(settings);
   const playerSet = new Map(players.map((p) => [p.id, p]));
 
@@ -33,12 +40,12 @@ export function replayAuctionActions(input: ReplayInput): {
   const appliedIds = new Set<string>();
 
   // Track states
-  const teamStates: TeamState[] = teams.map((t) => ({
+  const teamStates: TeamState[] = teams.map((t, i) => ({
     name: t.name,
     spent: 0,
     roster: [],
-    remainingBudget: settings.budget,
-    maxBid: settings.budget,
+    remainingBudget: getTeamBudget(i),
+    maxBid: getTeamBudget(i),
   }));
 
   const draftedPlayerIds = new Set<number>();
@@ -122,7 +129,7 @@ export function replayAuctionActions(input: ReplayInput): {
 
         team.roster.push({ playerId, price, actionId: action.id });
         team.spent += price;
-        team.remainingBudget = settings.budget - team.spent;
+        team.remainingBudget = getTeamBudget(teamIdx) - team.spent;
         recalcMaxBid(teamIdx);
         break;
       }
@@ -168,7 +175,7 @@ export function replayAuctionActions(input: ReplayInput): {
           team.roster.splice(rosterIdx, 1);
         }
         team.spent -= price;
-        team.remainingBudget = settings.budget - team.spent;
+        team.remainingBudget = getTeamBudget(teamIdx) - team.spent;
         recalcMaxBid(teamIdx);
         break;
       }
@@ -203,7 +210,7 @@ export function replayAuctionActions(input: ReplayInput): {
           team.roster.splice(rosterIdx, 1);
         }
         team.spent -= price;
-        team.remainingBudget = settings.budget - team.spent;
+        team.remainingBudget = getTeamBudget(teamIdx) - team.spent;
         recalcMaxBid(teamIdx);
         break;
       }
@@ -219,8 +226,8 @@ export function replayAuctionActions(input: ReplayInput): {
             name: teams[i].name,
             spent: 0,
             roster: [],
-            remainingBudget: settings.budget,
-            maxBid: settings.budget,
+            remainingBudget: getTeamBudget(i),
+            maxBid: getTeamBudget(i),
           };
         }
         break;
