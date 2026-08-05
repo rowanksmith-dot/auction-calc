@@ -112,6 +112,8 @@ export function DraftRoom({
   const [bidError, setBidError] = useState<string | null>(null);
   const [editTeamBudget, setEditTeamBudget] = useState<{ teamIdx: number; name: string; currentBudget: number } | null>(null);
   const [editTeamBudgetInput, setEditTeamBudgetInput] = useState("");
+  const [editTeamName, setEditTeamName] = useState<{ teamIdx: number; name: string } | null>(null);
+  const [editTeamNameInput, setEditTeamNameInput] = useState("");
 
   // ── Auto-recalculate after Sleeper import applies settings ──
   useEffect(() => {
@@ -1030,8 +1032,21 @@ export function DraftRoom({
             >
               {/* Team header */}
               <div className="px-3 pt-2.5 pb-2 border-b border-border/50">
-                <div className={cn("text-sm truncate", isSelected && "font-bold")}>
-                  {team.name}
+                <div className="flex items-center gap-1">
+                  <span className={cn("text-sm truncate", isSelected && "font-bold")}>
+                    {team.name}
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditTeamName({ teamIdx: i, name: team.name });
+                      setEditTeamNameInput(team.name);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-all p-0.5 rounded hover:bg-muted shrink-0"
+                    title="Edit team name"
+                  >
+                    <Edit3 size={10} />
+                  </button>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <div className={cn("text-lg tabular-nums mt-0.5", isSelected ? "font-extrabold" : "font-bold")}>
@@ -1272,6 +1287,56 @@ export function DraftRoom({
                 className="flex-1 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors"
               >
                 Confirm Bid
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit team name modal */}
+      {editTeamName !== null && (
+        <div className="fixed inset-0 bg-black z-50 flex items-center justify-center px-4">
+          <div className="bg-card rounded-xl border border-border p-6 max-w-sm w-full">
+            <h3 className="text-lg font-semibold mb-4">Edit Team Name</h3>
+            <input
+              type="text"
+              value={editTeamNameInput}
+              onChange={(e) => setEditTeamNameInput(e.target.value)}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-primary mb-4"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const trimmed = editTeamNameInput.trim();
+                  if (trimmed) {
+                    const next = [...storeTeamNames];
+                    next[editTeamName!.teamIdx] = trimmed;
+                    setTeamNames(next);
+                  }
+                  setEditTeamName(null);
+                }
+                if (e.key === "Escape") setEditTeamName(null);
+              }}
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setEditTeamName(null)}
+                className="flex-1 py-2 rounded-lg bg-secondary text-secondary-foreground font-medium text-sm hover:bg-secondary/80 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const trimmed = editTeamNameInput.trim();
+                  if (trimmed) {
+                    const next = [...storeTeamNames];
+                    next[editTeamName!.teamIdx] = trimmed;
+                    setTeamNames(next);
+                  }
+                  setEditTeamName(null);
+                }}
+                className="flex-1 py-2 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors"
+              >
+                Save
               </button>
             </div>
           </div>
